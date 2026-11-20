@@ -1,2 +1,5 @@
 python-chess
 pytest
+numpy
+PySide6
+opencv-python-headless

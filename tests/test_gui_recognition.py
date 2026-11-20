@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import numpy as np
+from PySide6.QtWidgets import QApplication
+from PySide6 import QtCore
+
+from chessvision.board_detection import BoardGrid
+from chessvision.gui import BoardCanvas, MainWindow
+from chessvision.gui import PreviewWidget
+from chessvision.piece_recognition import PiecePrediction
+
+
+def test_gui_renders_recognized_piece_in_editable_board() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    image = np.zeros((128, 128, 3), dtype=np.uint8)
+    grid = BoardGrid.manual(image)
+    window._recognition_complete(grid, {"a8": PiecePrediction("black_rook", 0.93, False)}, "test")
+    assert window.editor.cellWidget(0, 0).currentText() == "black_rook"
+    assert "0 uncertain" in window.statusBar().currentMessage()
+    window.close()
+    app.processEvents()
+
+
+def test_move_arrow_coordinates_follow_orientation() -> None:
+    canvas = BoardCanvas()
+    canvas.resize(320, 320)
+    canvas.orientation = "white"
+    assert canvas._display_point("a1", 40).y() == 300
+    canvas.orientation = "black"
+    assert canvas._display_point("a1", 40).x() == 300
+
+
+def test_letterboxed_preview_selection_maps_to_original_pixels() -> None:
+    preview = PreviewWidget()
+    preview.setMinimumSize(0, 0)
+    preview.resize(400, 400)
+    preview.set_frame(np.zeros((400, 800, 3), dtype=np.uint8))
+    region = preview.source_region(QtCore.QRectF(100, 150, 200, 100))
+    assert (region.x, region.y, region.width, region.height) == (200, 100, 400, 200)
+    assert preview.source_region(QtCore.QRectF(0, 0, 20, 20)) is None
+
+
+def test_compact_window_resizes_with_accessible_primary_controls() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    assert window.minimumWidth() == 750 and window.minimumHeight() == 500
+    for width, height in ((750, 500), (1050, 700), (1500, 900)):
+        window.resize(width, height)
+        app.processEvents()
+        assert window.start_button.isVisible() is False or window.start_button.isEnabled()
+        assert window.analyze_button is not None
+    window.close()
+
+
+def test_editor_shows_source_square_and_supports_undo() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    image = np.full((128, 128, 3), 80, dtype=np.uint8)
+    image[:16, :16] = (230, 230, 230)
+    window._board_image = image
+    window._grid = BoardGrid.manual(image)
+    window._predictions = {"a8": PiecePrediction("black_rook", .61, True)}
+    window._populate_editor()
+    window._show_square_crop(0, 0)
+    assert window.board_preview.pixmap() is not None
+    window._manual_piece("a8", "white_queen")
+    assert window._predictions["a8"].state == "white_queen"
+    assert window.undo_button.isEnabled()
+    window._undo_piece_edit()
+    assert window._predictions["a8"].state == "black_rook"
+    window.close()
+    app.processEvents()

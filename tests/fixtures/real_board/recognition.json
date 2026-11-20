@@ -1,0 +1,338 @@
+{
+  "backend": "bundled generated fallback",
+  "grid": {
+    "x": 0,
+    "y": 0,
+    "size": 1699,
+    "image_width": 1699,
+    "image_height": 1714,
+    "source": "automatic"
+  },
+  "predictions": {
+    "a8": {
+      "state": "empty",
+      "confidence": 0.877389705882353,
+      "uncertain": false
+    },
+    "b8": {
+      "state": "empty",
+      "confidence": 0.9265380859375,
+      "uncertain": false
+    },
+    "c8": {
+      "state": "empty",
+      "confidence": 0.8856430951286764,
+      "uncertain": false
+    },
+    "d8": {
+      "state": "empty",
+      "confidence": 0.9245002297794118,
+      "uncertain": false
+    },
+    "e8": {
+      "state": "empty",
+      "confidence": 0.8667068780637255,
+      "uncertain": false
+    },
+    "f8": {
+      "state": "empty",
+      "confidence": 0.9395483877144608,
+      "uncertain": false
+    },
+    "g8": {
+      "state": "empty",
+      "confidence": 0.8761766620710785,
+      "uncertain": false
+    },
+    "h8": {
+      "state": "empty",
+      "confidence": 0.9331988166360294,
+      "uncertain": false
+    },
+    "a7": {
+      "state": "empty",
+      "confidence": 0.9390452665441176,
+      "uncertain": false
+    },
+    "b7": {
+      "state": "empty",
+      "confidence": 0.9008305568321078,
+      "uncertain": false
+    },
+    "c7": {
+      "state": "empty",
+      "confidence": 0.9442176968443627,
+      "uncertain": false
+    },
+    "d7": {
+      "state": "empty",
+      "confidence": 0.9034112668504902,
+      "uncertain": false
+    },
+    "e7": {
+      "state": "empty",
+      "confidence": 0.9485571767769607,
+      "uncertain": false
+    },
+    "f7": {
+      "state": "empty",
+      "confidence": 0.9043682023590687,
+      "uncertain": false
+    },
+    "g7": {
+      "state": "empty",
+      "confidence": 0.9475657743566177,
+      "uncertain": false
+    },
+    "h7": {
+      "state": "empty",
+      "confidence": 0.9026620902267157,
+      "uncertain": false
+    },
+    "a6": {
+      "state": "empty",
+      "confidence": 0.9397379557291667,
+      "uncertain": false
+    },
+    "b6": {
+      "state": "empty",
+      "confidence": 0.9644095626531863,
+      "uncertain": false
+    },
+    "c6": {
+      "state": "empty",
+      "confidence": 0.9428658279718137,
+      "uncertain": false
+    },
+    "d6": {
+      "state": "empty",
+      "confidence": 0.9686623965992647,
+      "uncertain": false
+    },
+    "e6": {
+      "state": "empty",
+      "confidence": 0.9454293045343137,
+      "uncertain": false
+    },
+    "f6": {
+      "state": "empty",
+      "confidence": 0.9714149624693628,
+      "uncertain": false
+    },
+    "g6": {
+      "state": "empty",
+      "confidence": 0.9441707835477942,
+      "uncertain": false
+    },
+    "h6": {
+      "state": "empty",
+      "confidence": 0.9680319393382353,
+      "uncertain": false
+    },
+    "a5": {
+      "state": "empty",
+      "confidence": 0.959487974877451,
+      "uncertain": false
+    },
+    "b5": {
+      "state": "empty",
+      "confidence": 0.9397647633272059,
+      "uncertain": false
+    },
+    "c5": {
+      "state": "empty",
+      "confidence": 0.9646781173406862,
+      "uncertain": false
+    },
+    "d5": {
+      "state": "empty",
+      "confidence": 0.9422052121629902,
+      "uncertain": false
+    },
+    "e5": {
+      "state": "empty",
+      "confidence": 0.9687777650122549,
+      "uncertain": false
+    },
+    "f5": {
+      "state": "empty",
+      "confidence": 0.9432583678002451,
+      "uncertain": false
+    },
+    "g5": {
+      "state": "empty",
+      "confidence": 0.9675958371629902,
+      "uncertain": false
+    },
+    "h5": {
+      "state": "empty",
+      "confidence": 0.9416561351102941,
+      "uncertain": false
+    },
+    "a4": {
+      "state": "empty",
+      "confidence": 0.9373592601102941,
+      "uncertain": false
+    },
+    "b4": {
+      "state": "empty",
+      "confidence": 0.9605396943933824,
+      "uncertain": false
+    },
+    "c4": {
+      "state": "empty",
+      "confidence": 0.9403976141237745,
+      "uncertain": false
+    },
+    "d4": {
+      "state": "empty",
+      "confidence": 0.9645335477941177,
+      "uncertain": false
+    },
+    "e4": {
+      "state": "empty",
+      "confidence": 0.9428045534620098,
+      "uncertain": false
+    },
+    "f4": {
+      "state": "empty",
+      "confidence": 0.9670941521139707,
+      "uncertain": false
+    },
+    "g4": {
+      "state": "empty",
+      "confidence": 0.9416207107843138,
+      "uncertain": false
+    },
+    "h4": {
+      "state": "empty",
+      "confidence": 0.9639428232230391,
+      "uncertain": false
+    },
+    "a3": {
+      "state": "empty",
+      "confidence": 0.9557516659007352,
+      "uncertain": false
+    },
+    "b3": {
+      "state": "empty",
+      "confidence": 0.9373702703737745,
+      "uncertain": false
+    },
+    "c3": {
+      "state": "empty",
+      "confidence": 0.9606000114889706,
+      "uncertain": false
+    },
+    "d3": {
+      "state": "empty",
+      "confidence": 0.9396599264705883,
+      "uncertain": false
+    },
+    "e3": {
+      "state": "empty",
+      "confidence": 0.9642803117340686,
+      "uncertain": false
+    },
+    "f3": {
+      "state": "empty",
+      "confidence": 0.9405938840379902,
+      "uncertain": false
+    },
+    "g3": {
+      "state": "empty",
+      "confidence": 0.9633339077818628,
+      "uncertain": false
+    },
+    "h3": {
+      "state": "empty",
+      "confidence": 0.9391443589154411,
+      "uncertain": false
+    },
+    "a2": {
+      "state": "empty",
+      "confidence": 0.9243489583333333,
+      "uncertain": false
+    },
+    "b2": {
+      "state": "empty",
+      "confidence": 0.9255835439644609,
+      "uncertain": false
+    },
+    "c2": {
+      "state": "empty",
+      "confidence": 0.9269516888786764,
+      "uncertain": false
+    },
+    "d2": {
+      "state": "empty",
+      "confidence": 0.9292552274816177,
+      "uncertain": false
+    },
+    "e2": {
+      "state": "empty",
+      "confidence": 0.9291254978553922,
+      "uncertain": false
+    },
+    "f2": {
+      "state": "empty",
+      "confidence": 0.931436217064951,
+      "uncertain": false
+    },
+    "g2": {
+      "state": "empty",
+      "confidence": 0.9281814874387255,
+      "uncertain": false
+    },
+    "h2": {
+      "state": "empty",
+      "confidence": 0.9285754633884804,
+      "uncertain": false
+    },
+    "a1": {
+      "state": "empty",
+      "confidence": 0.9063706341911765,
+      "uncertain": false
+    },
+    "b1": {
+      "state": "empty",
+      "confidence": 0.9187322878370098,
+      "uncertain": false
+    },
+    "c1": {
+      "state": "empty",
+      "confidence": 0.913070618872549,
+      "uncertain": false
+    },
+    "d1": {
+      "state": "empty",
+      "confidence": 0.916695867800245,
+      "uncertain": false
+    },
+    "e1": {
+      "state": "empty",
+      "confidence": 0.8988937078737745,
+      "uncertain": false
+    },
+    "f1": {
+      "state": "empty",
+      "confidence": 0.9225164675245098,
+      "uncertain": false
+    },
+    "g1": {
+      "state": "empty",
+      "confidence": 0.9071624157475491,
+      "uncertain": false
+    },
+    "h1": {
+      "state": "empty",
+      "confidence": 0.9207988664215686,
+      "uncertain": false
+    }
+  },
+  "software": {
+    "python": "3.15.2",
+    "opencv": "5.1.0"
+  },
+  "note": "Contains only the user-selected board crop, never the full desktop frame."
+}
