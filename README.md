@@ -1,68 +1,50 @@
-# ChessVision
+# ChessVision – Stockfish-Brett-Assistent für Chrome
 
-ChessVision is a free, open-source Linux chess-training and analysis project. Phase 1 provides reliable local Stockfish analysis and a command-line demonstration. It uses no paid APIs or cloud service.
+Markiere auf **beliebigen Websites** mit der Maus das Schachbrett. Die Extension liest die
+Stellung aus dem Screenshot, baut daraus eine FEN und zeigt Stockfishs besten Zug als Pfeil
+direkt auf dem markierten Brett an. Alles läuft lokal – keine API, kein Server, kein Login.
 
-## Features
+## Installieren
 
-- Local Stockfish analysis through `python-chess`
-- FEN and chess-position validation
-- Multiple principal variations with SAN, UCI, evaluation, mate, and depth data
-- White-perspective evaluation: positive favors White; negative favors Black
-- Safe engine cleanup, including context-manager support
+1. `chrome://extensions` öffnen
+2. **Entwicklermodus** oben rechts aktivieren
+3. **Entpackte Erweiterung laden** klicken und dieses Verzeichnis auswählen
+4. Das ChessVision-Symbol an die Symbolleiste anheften (optional)
 
-## Fedora installation
+## Bedienung
 
-```bash
-sudo dnf install python3 python3-pip stockfish
+1. Auf der Schachseite auf das ChessVision-Symbol klicken → **Brett jetzt markieren**
+2. Mit gedrückter linker Maustaste ein Rechteck **genau um die 64 Felder** ziehen (nicht um Rand, Koordinaten oder Uhr)
+3. Die Extension erkennt die Figuren, baut die FEN und zeichnet den besten Zug als grünen Pfeil
+4. Bei Fehlern: im Overlay auf **✎** klicken, Figuren anklicken und korrigieren → **✓ Übernehmen**
 
-python3 -m venv .venv
-source .venv/bin/activate
+Weitere Overlay-Buttons: **↻** neu analysieren, **⇄** Seite/Brett drehen, **✕** schließen.
+Im Popup lassen sich die eigene Farbe und die Denkzeit (0,3–4 s) einstellen.
 
-python -m pip install -r requirements.txt
-python main.py
-```
+## Funktionsweise
 
-Stockfish is found from `PATH`; no Ubuntu-specific location is assumed.
+- `content/content.js` – Auswahlrechteck und Overlay (Shadow DOM, funktioniert auf allen Seiten)
+- `background/service-worker.js` – koordiniert Screenshot, Offscreen-Dokument und Tabs
+- `engine/host.html` + `engine/host.js` – Bilderkennung, FEN-Bau und Stockfish-Steuerung
+- `engine/vision.js` – 8×8-Raster, Farberkennung und Figurenklassifikation per Kanten-/Silhouetten-Matching
+- `sprites/` – mitgelieferte Chess.com-Neo-Vorlagen (aus dem früheren Python-Projekt)
+- Zusätzlich werden Unicode-Schachglyphen in mehreren Fonts als Vorlagen erzeugt
+- Korrekturen werden als Vorlagen gelernt, damit dieselbe Seite beim nächsten Mal besser erkannt wird
+- `engine/stockfish-19-lite-single.js/.wasm` – Stockfish 19 (Lite, single-threaded), ~1,8 MB
+- `lib/chess.js` – FEN-Validierung, Legality-Check und SAN-Umwandlung
 
-## Verified runtime
+## Grenzen
 
-Phase 1 was verified locally with the following versions:
+- Die Erkennung ist Template-basiert. Auf ungewöhnlichen Figurensets können Fehler auftreten;
+  die manuelle Korrektur (✎) ist deshalb bewusst eingebaut.
+- Die Seite, auf der gespielt wird, muss sichtbar sein (`captureVisibleTab`). `chrome://`-Seiten
+  können von Extensions nicht erfasst werden.
+- Zugriff auf die Seite nur zur Anzeige – die Extension bewegt keine Figuren und sendet keine Züge.
 
-- Python 3.13.11 (fresh virtual environment) and Python 3.15.2
-- `python-chess` 1.999 (`chess` 1.11.2)
-- Stockfish 19
+## Lizenzen
 
-Both Python versions completed a real standard-position analysis at depth 12
-with MultiPV 3 and exited cleanly. ChessVision uses `python-chess`'s
-`UciProtocol` inside an `asyncio.Runner`, avoiding the threaded `SimpleEngine`
-wrapper that stalled in this environment.
+- Stockfish: GPLv3 (siehe `engine/Stockfish-LICENSE.txt`)
+- chess.js: MIT (siehe `lib/chess-LICENSE`)
+- Figuren-Sprites: Chess.com Neo-Theme (aus dem ursprünglichen Projekt)
 
-## Usage
-
-```bash
-python main.py
-python main.py --fen "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
-python main.py --depth 20 --multipv 5
-python main.py --stockfish /usr/bin/stockfish
-```
-
-Run `python main.py --help` for all arguments. The program prints the board and requested best lines. CLI evaluations are in pawns, from White's perspective; mate is reported separately.
-
-## Testing
-
-```bash
-pytest
-```
-
-The test suite mocks Stockfish where practical, so most tests run without an engine installation.
-
-## Roadmap
-
-1. Stockfish engine and command-line analysis (current phase)
-2. OpenCV-based screen and board detection
-3. Position recognition and FEN generation
-4. PySide6 transparent analysis overlay
-
-## Disclaimer
-
-ChessVision is for training and permitted analysis only. Do not use it for unauthorized assistance during competitive games or where analysis tools are prohibited.
+Nur für legales Training und Analyse verwenden.

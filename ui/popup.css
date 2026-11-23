@@ -1,0 +1,63 @@
+* { box-sizing: border-box; }
+body {
+  width: 330px;
+  margin: 0;
+  padding: 14px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #e8f7f0;
+  background: #0c1a15;
+}
+.header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.knight {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: #14352a; color: #2ee6a0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; border: 1px solid #2ee6a0;
+}
+h1 { font-size: 16px; margin: 0; }
+.header p { font-size: 11px; color: #9dd8c1; margin: 2px 0 0; }
+button, select, input { font-family: inherit; }
+.primary {
+  width: 100%; padding: 10px; border: 0; border-radius: 9px;
+  background: #2ee6a0; color: #062016; font-weight: 800; font-size: 14px;
+  cursor: pointer;
+}
+.primary:hover { background: #5af0b8; }
+.row { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; }
+.row label { color: #9dd8c1; min-width: 92px; }
+.row select {
+  flex: 1; background: #14352a; color: #e8f7f0;
+  border: 1px solid #35705c; border-radius: 6px; padding: 5px;
+}
+.row input[type="range"] { flex: 1; accent-color: #2ee6a0; }
+.row span { min-width: 38px; text-align: right; color: #2ee6a0; }
+.card {
+  margin-top: 14px; padding: 12px; border-radius: 10px;
+  background: #123027; border: 1px solid #245844;
+}
+.status { font-size: 11px; color: #9dd8c1; min-height: 15px; }
+.move { font-size: 28px; font-weight: 800; color: #2ee6a0; margin: 4px 0; }
+.evaluation { font-size: 12px; color: #cfe9dd; min-height: 16px; }
+.card-actions { display: flex; gap: 6px; margin-top: 10px; }
+.card-actions button {
+  flex: 1; padding: 6px; font-size: 11px; cursor: pointer;
+  background: #1c3a30; color: #dff7ec;
+  border: 1px solid #35705c; border-radius: 6px;
+}
+.card-actions button:hover { background: #2ee6a0; color: #062016; }
+.fen-box {
+  margin-top: 10px; display: flex; align-items: center; gap: 6px;
+  background: #0a1712; border: 1px solid #245844;
+  border-radius: 8px; padding: 7px 8px;
+}
+.fen-label { font-size: 10px; color: #9dd8c1; }
+#fen {
+  flex: 1; font-size: 10px; color: #cfe9dd;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#copy {
+  background: none; border: 0; color: #2ee6a0;
+  font-size: 15px; cursor: pointer; padding: 0 2px;
+}
+.hint { margin: 12px 0 0; font-size: 10px; line-height: 1.6; color: #8fbdaa; }
+.hint b { color: #cfe9dd; }

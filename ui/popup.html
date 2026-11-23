@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>ChessVision</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <div class="knight">♞</div>
+    <div>
+      <h1>ChessVision</h1>
+      <p>Brett markieren – bester Zug sehen</p>
+    </div>
+  </div>
+
+  <button id="select" class="primary">Brett jetzt markieren</button>
+
+  <div class="row">
+    <label for="side">Ich spiele als</label>
+    <select id="side">
+      <option value="white">Weiß</option>
+      <option value="black">Schwarz</option>
+    </select>
+  </div>
+  <div class="row">
+    <label for="time">Denkzeit</label>
+    <input id="time" type="range" min="300" max="4000" step="100" value="1200">
+    <span id="timeValue">1,2 s</span>
+  </div>
+
+  <div class="card">
+    <div id="status" class="status">Bereit</div>
+    <div id="move" class="move">–</div>
+    <div id="evaluation" class="evaluation">Noch keine Analyse</div>
+    <div class="card-actions">
+      <button id="refresh">Neu analysieren</button>
+      <button id="clear">Overlay schließen</button>
+    </div>
+  </div>
+
+  <div class="fen-box">
+    <span class="fen-label">FEN</span>
+    <code id="fen">–</code>
+    <button id="copy" title="FEN kopieren">⧉</button>
+  </div>
+
+  <p class="hint">
+    1. Markiere auf der Seite mit der Maus <b>genau die 64 Felder</b>.<br>
+    2. ChessVision liest die Stellung und zeigt den Zug als Pfeil.<br>
+    3. Falsch erkannt? Im Overlay auf <b>✎</b> klicken und Figuren korrigieren.
+  </p>
+
+  <script src="popup.js"></script>
+</body>
+</html>
