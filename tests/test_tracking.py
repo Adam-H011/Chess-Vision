@@ -177,3 +177,25 @@ def test_constrained_recognition_confirms_each_castle_from_king_and_rook_squares
         assert tracker.observe_constrained_predictions(predictions).state is TrackingState.CANDIDATE
         assert tracker.observe_constrained_predictions(predictions).state is TrackingState.MOVE_CONFIRMED
         assert tracker.fen == after.fen(en_passant="fen")
+
+
+def test_visual_and_constrained_fallback_observations_share_the_stability_candidate():
+    states = {"P": "white_pawn", "N": "white_knight", "B": "white_bishop", "R": "white_rook", "Q": "white_queen", "K": "white_king",
+              "p": "black_pawn", "n": "black_knight", "b": "black_bishop", "r": "black_rook", "q": "black_queen", "k": "black_king"}
+    board = chess.Board()
+    tracker = BoardTracker(); tracker.confirm_initial(board.fen(en_passant="fen"))
+    for index, uci in enumerate(("e2e4", "e7e5", "g1f3", "b8c6")):
+        board.push_uci(uci)
+        predictions = {
+            chess.square_name(square): SimpleNamespace(state=states[piece.symbol()] if piece else "empty", confidence=.92, uncertain=False)
+            for square in chess.SQUARES
+            for piece in (board.piece_at(square),)
+        }
+        if index % 2 == 0:
+            assert tracker.observe_visual_move(uci, .9).state is TrackingState.CANDIDATE
+            update = tracker.observe_constrained_predictions(predictions)
+        else:
+            assert tracker.observe_constrained_predictions(predictions).state is TrackingState.CANDIDATE
+            update = tracker.observe_visual_move(uci, .9)
+        assert update.state is TrackingState.MOVE_CONFIRMED
+        assert tracker.fen == board.fen(en_passant="fen")

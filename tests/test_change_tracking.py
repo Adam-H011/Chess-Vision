@@ -129,3 +129,30 @@ def test_all_castles_keep_two_frame_confirmation_and_metadata():
         assert update.state is TrackingState.MOVE_CONFIRMED
         assert update.move_san == san
         assert legal.fen == after.fen(en_passant="fen")
+
+
+def test_twenty_legal_moves_keep_visual_baseline_fen_and_history_synchronized():
+    moves = (
+        "e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6",
+        "e1g1", "f8e7", "f1e1", "b7b5", "a4b3", "d7d6", "c2c3", "e8g8",
+        "d2d4", "c8g4", "d1e2", "d8d7",
+    )
+    board = chess.Board()
+    image = board_frame(board)
+    grid = BoardGrid.manual(image)
+    visual = ChangeFirstTracker(change_threshold=.05, minimum_score=.10, separation=.01)
+    visual.set_baseline(image, grid, "white")
+    legal = BoardTracker(); legal.confirm_initial(board.fen(en_passant="fen"))
+    expected_history = []
+    for uci in moves:
+        expected_history.append(board.san(chess.Move.from_uci(uci)))
+        board.push_uci(uci)
+        image = board_frame(board)
+        observation = visual.observe(image, grid, legal.board)
+        assert observation.candidates[0].move_uci == uci
+        assert legal.observe_visual_move(uci, observation.candidates[0].score).state is TrackingState.CANDIDATE
+        assert legal.observe_visual_move(uci, observation.candidates[0].score).state is TrackingState.MOVE_CONFIRMED
+        assert legal.fen == board.fen(en_passant="fen")
+        visual.accept_current(image, grid)
+        assert np.array_equal(visual.baseline_image, image)
+    assert legal.history == expected_history

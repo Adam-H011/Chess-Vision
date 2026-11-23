@@ -84,12 +84,14 @@ class RecognitionWorker(QtCore.QThread):
 
 class MonitoringWorker(RecognitionWorker):
     """Same proven recognizer, run off the UI thread for one captured frame."""
-    completed_monitoring = QtCore.Signal(object, object, object, str)
+    completed_monitoring = QtCore.Signal(object, object, object, object, int, int, str)
 
     def __init__(self, image: np.ndarray, orientation: str, template_directory: str,
-                 visual_tracker: ChangeFirstTracker | None = None, board_fen: str | None = None) -> None:
+                 visual_tracker: ChangeFirstTracker | None = None, board_fen: str | None = None,
+                 source_sequence: int = 0, monitoring_epoch: int = 0) -> None:
         super().__init__(image, orientation, template_directory)
         self.visual_tracker, self.board_fen = visual_tracker, board_fen
+        self.source_sequence, self.monitoring_epoch = source_sequence, monitoring_epoch
 
     def run(self) -> None:
         try:
@@ -113,7 +115,11 @@ class MonitoringWorker(RecognitionWorker):
                 predictions = recognize_board(self.image, grid, selection.recognizer, self.orientation)
                 profile = selection.profile_name or "generated fallback / no matching profile"
                 diagnostic += f" Monitoring profile: {profile}; orientation: {self.orientation}."
-            self.completed_monitoring.emit(grid, predictions, visual, diagnostic)
+            # Carry the exact image and capture identity through the queued Qt
+            # signal. A later timer tick may already have created another
+            # worker when this result reaches the GUI thread.
+            self.completed_monitoring.emit(self.image, grid, predictions, visual,
+                                           self.source_sequence, self.monitoring_epoch, diagnostic)
         except (BoardDetectionError, TemplateError, ValueError) as exc:
             self.failed.emit(str(exc))
 
@@ -465,6 +471,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._monitor_frame_dimensions: tuple[int, int] | None = None
         self._monitor_frame_info = None
         self._monitor_last_sequence: int | None = None
+        self._monitor_last_processed_sequence: int | None = None
+        self._monitor_last_new_frame_monotonic: float | None = None
+        self._monitoring_epoch = 0
         self._last_monitor_predictions: dict[str, PiecePrediction] | None = None
         self._last_tracking_report: dict | None = None
         self._tracking_orientation: str | None = None
@@ -662,6 +671,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._monitor_last_frame = None
         self._monitor_last_sequence = None
+        self._monitor_last_processed_sequence = None
+        self._monitor_last_new_frame_monotonic = time.monotonic()
+        self._monitoring_epoch += 1
         self._monitoring_active = True
         self._monitor_timer.start(self.monitor_interval.value())
         self._refresh_state_controls()
@@ -673,6 +685,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._monitoring_active = False
         self._monitor_last_frame = None
         self._monitor_last_sequence = None
+        self._monitor_last_processed_sequence = None
+        self._monitor_last_new_frame_monotonic = None
+        self._monitoring_epoch += 1
         if self._tracker.board:
             self._tracker.stop()
         self.tracking_status.setText("Tracking: stopped.")
@@ -706,36 +721,54 @@ class MainWindow(QtWidgets.QMainWindow):
             # between a logged frame and a later ``selected_region`` frame.
             frame_and_info = self.capture.latest_frame_with_info()
             if frame_and_info is None:
-                raise CaptureError("No captured frame is available yet.")
+                if self._monitor_last_new_frame_monotonic is not None and time.monotonic() - self._monitor_last_new_frame_monotonic >= 5.0:
+                    raise CaptureError("No PipeWire frame arrived for 5 seconds.")
+                return
             frame, info = frame_and_info
             self._monitor_frame_dimensions = (frame.shape[1], frame.shape[0])
             self._monitor_frame_info = info
             if self._monitor_last_sequence == info.sequence_id:
                 # Polling the cache again is not a second observation. Only a
                 # newly delivered PipeWire frame can satisfy move stability.
+                if self._monitor_last_new_frame_monotonic is not None and time.monotonic() - self._monitor_last_new_frame_monotonic >= 5.0:
+                    raise CaptureError("PipeWire stopped delivering new frames for 5 seconds.")
                 return
             image = crop_frame(frame, self._monitor_region)
         except (CaptureError, InvalidRegionError) as exc:
             self._tracking_capture_error(str(exc)); return
+        # A fresh PipeWire sequence is consumed once even when it needs no
+        # recognition work. Otherwise a quiet frame is reconsidered on every
+        # timer tick until a later frame happens to arrive.
+        self._monitor_last_sequence = info.sequence_id
+        self._monitor_last_new_frame_monotonic = time.monotonic()
         if not self._should_process_monitor_image(image):
             return
         self._monitor_last_frame = image.copy()
-        self._monitor_last_sequence = self._monitor_frame_info.sequence_id
         orientation = self._tracking_orientation or self.orientation.currentData()
         LOGGER.debug("Monitoring frame=%sx%s crop=x=%s y=%s w=%s h=%s orientation=%s", *self._monitor_frame_dimensions, self._monitor_region.x, self._monitor_region.y, self._monitor_region.width, self._monitor_region.height, orientation)
-        self._monitor_worker = MonitoringWorker(image, orientation, self.template_directory.text().strip(), self._visual_tracker, self._tracker.fen)
+        self._monitor_worker = MonitoringWorker(
+            image, orientation, self.template_directory.text().strip(), self._visual_tracker,
+            self._tracker.fen, self._monitor_frame_info.sequence_id, self._monitoring_epoch,
+        )
         self._monitor_worker.completed_monitoring.connect(self._monitoring_recognized)
-        self._monitor_worker.failed.connect(self._monitoring_failed)
+        self._monitor_worker.failed.connect(
+            lambda detail, epoch=self._monitoring_epoch: self._monitoring_failed(detail, epoch)
+        )
         self._monitor_worker.start()
 
     def _tracking_capture_error(self, detail: str) -> None:
         self._stop_monitoring()
         self.tracking_status.setText("Tracking: " + self._tracker.disconnected(f"Capture disconnected: {detail}").message)
 
-    def _monitoring_recognized(self, grid: BoardGrid, predictions: dict, visual: ChangeObservation | None, diagnostic: str) -> None:
-        if not self._monitoring_active:
+    def _monitoring_recognized(self, image: np.ndarray, grid: BoardGrid, predictions: dict,
+                               visual: ChangeObservation | None, source_sequence: int,
+                               monitoring_epoch: int, diagnostic: str) -> None:
+        if not self._monitoring_active or monitoring_epoch != self._monitoring_epoch:
             return
-        self._grid, self._board_image = grid, self._monitor_worker.image.copy() if self._monitor_worker else None
+        if self._monitor_last_processed_sequence is not None and source_sequence <= self._monitor_last_processed_sequence:
+            return
+        self._monitor_last_processed_sequence = source_sequence
+        self._grid, self._board_image = grid, image.copy()
         self._last_monitor_predictions = predictions or None
         authoritative_fen = self._tracker.fen
         if visual is not None and visual.candidates and visual.decision.startswith("Visual evidence favors"):
@@ -769,7 +802,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._visual_tracker.accept_current(self._board_image, grid)
             self._maybe_auto_analyze()
 
-    def _monitoring_failed(self, detail: str) -> None:
+    def _monitoring_failed(self, detail: str, monitoring_epoch: int | None = None) -> None:
+        if monitoring_epoch is not None and (not self._monitoring_active or monitoring_epoch != self._monitoring_epoch):
+            return
         self.tracking_status.setText(f"Tracking: recognition failed; retained current position. {detail}")
 
     def _retry_monitoring_recognition(self) -> None:

@@ -142,7 +142,7 @@ def test_tracking_mismatch_keeps_confirmed_fen_and_offline_engine_available() ->
     image = np.zeros((80, 80, 3), dtype=np.uint8)
     window._monitor_frame_dimensions = (80, 80)
     window._monitor_region = CaptureRegion(0, 0, 80, 80)
-    window._monitoring_recognized(BoardGrid.manual(image), empty_predictions(), None, "test")
+    window._monitoring_recognized(image, BoardGrid.manual(image), empty_predictions(), None, 1, window._monitoring_epoch, "test")
     assert window._tracker.state is TrackingState.UNCERTAIN
     assert window._confirmed_fen == chess.STARTING_FEN
     assert window._position_valid and window.analyze_position_button.isEnabled()
@@ -274,15 +274,79 @@ def test_gui_processes_both_stable_castling_observations() -> None:
         window._tracker.confirm_initial(before.fen(en_passant="fen"))
         window._visual_tracker.set_baseline(before_image, grid, "white")
         window._monitoring_active = True
-        window._monitor_worker = SimpleNamespace(image=after_image)
         visual = window._visual_tracker.observe(after_image, grid, window._tracker.board)
-        window._monitoring_recognized(grid, {}, visual, "test")
+        window._monitoring_recognized(after_image, grid, {}, visual, 1, window._monitoring_epoch, "test")
         assert window._tracker.state is TrackingState.CANDIDATE
-        window._monitor_worker = SimpleNamespace(image=after_image)
-        window._monitoring_recognized(grid, {}, visual, "test")
+        window._monitoring_recognized(after_image, grid, {}, visual, 2, window._monitoring_epoch, "test")
         assert window._tracker.state is TrackingState.MOVE_CONFIRMED
         assert window._confirmed_fen == after.fen(en_passant="fen")
         window.close(); app.processEvents()
+
+
+def test_completed_worker_uses_its_own_frame_after_a_later_worker_is_created() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    before = chess.Board()
+    after = before.copy(stack=False); after.push_uci("e2e4")
+    later = after.copy(stack=False); later.push_uci("e7e5")
+    before_image, after_image, later_image = rendered_board(before), rendered_board(after), rendered_board(later)
+    grid = BoardGrid.manual(before_image)
+    window._tracker.confirm_initial(before.fen(en_passant="fen"))
+    window._visual_tracker.set_baseline(before_image, grid, "white")
+    window._monitoring_active = True
+    visual = window._visual_tracker.observe(after_image, grid, window._tracker.board)
+    # Simulate the timer replacing the worker before its queued result runs.
+    window._monitor_worker = SimpleNamespace(image=later_image)
+    window._monitoring_recognized(after_image, grid, {}, visual, 11, window._monitoring_epoch, "test")
+    window._monitoring_recognized(after_image, grid, {}, visual, 12, window._monitoring_epoch, "test")
+    assert window._tracker.history == ["e4"]
+    assert np.array_equal(window._visual_tracker.baseline_image, after_image)
+    window.close(); app.processEvents()
+
+
+def test_result_from_a_stopped_monitoring_session_is_ignored() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    before = chess.Board()
+    after = before.copy(stack=False); after.push_uci("e2e4")
+    before_image, after_image = rendered_board(before), rendered_board(after)
+    grid = BoardGrid.manual(before_image)
+    window._tracker.confirm_initial(before.fen(en_passant="fen"))
+    window._visual_tracker.set_baseline(before_image, grid, "white")
+    window._monitoring_active = True
+    window._monitoring_epoch = 2
+    visual = window._visual_tracker.observe(after_image, grid, window._tracker.board)
+    window._monitoring_recognized(after_image, grid, {}, visual, 1, 1, "stale")
+    assert window._tracker.history == []
+    assert window._tracker.state is TrackingState.MONITORING
+    window.close(); app.processEvents()
+
+
+def test_monitoring_stops_with_a_clear_reason_when_pipewire_frames_stall(monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window._tracker.confirm_initial(chess.STARTING_FEN)
+    window._monitoring_active = True
+    window._monitor_region = CaptureRegion(0, 0, 80, 80)
+    window._monitor_last_new_frame_monotonic = 10.0
+
+    class Capture:
+        @property
+        def is_running(self):
+            return False
+
+        def latest_frame_with_info(self):
+            return None
+
+        def stop(self):
+            pass
+
+    window.capture = Capture()
+    monkeypatch.setattr(gui_module.time, "monotonic", lambda: 15.1)
+    window._monitor_tick()
+    assert window._tracker.state is TrackingState.DISCONNECTED
+    assert "No PipeWire frame arrived" in window.tracking_status.text()
+    window.close(); app.processEvents()
 
 
 def test_manual_confirmation_cannot_desynchronize_legal_successor_turn_metadata() -> None:
