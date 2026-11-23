@@ -226,13 +226,15 @@ async function handleWatch(message) {
     }
     if (previous.pending && gridsEqual(vision.grid, previous.pending.grid)) {
       previous.pending = null;
-      const turn = previous.settings.turn === 'w' ? 'b' : 'w';
+      // Immer die vom Nutzer gewählte Zugfarbe analysieren („Ich spiele als …“).
+      // Die Farbe wird nicht automatisch gewechselt – sonst käme nach dem eigenen
+      // Zug die Gegnerantwort als vermeintlicher Vorschlag für den Nutzer.
       await analyzePosition({
         requestId,
         tabId,
         rect,
         dpr,
-        settings: Object.assign({}, settings, { turn }),
+        settings,
         grid: vision.grid,
         cells: vision.cells,
         uncertain: vision.uncertain,

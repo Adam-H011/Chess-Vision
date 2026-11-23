@@ -194,6 +194,25 @@ async function flip(tabId) {
   }
 }
 
+async function reanalyzeLatest(tabId) {
+  const last = await getLastByTab();
+  const entry = last[tabId];
+  if (!entry) {
+    forward({ type: 'ERROR', message: 'Bitte zuerst ein Brett markieren.', tabId }, tabId);
+    return;
+  }
+  const settings = await getSettings();
+  const requestId = nextRequestId(tabId);
+  forward({ type: 'STATUS', text: 'Stockfish rechnet…', requestId, tabId }, tabId);
+  if (entry.board) {
+    await toHost({ type: 'HOST_SET_BOARD', requestId, tabId, board: entry.board, changedIndices: [], settings });
+  } else if (entry.grid) {
+    await rebuildFromGrid(tabId, entry.grid, 'Stockfish rechnet…');
+  } else {
+    forward({ type: 'ERROR', message: 'Keine Stellung gespeichert – bitte neu markieren.', tabId }, tabId);
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== 'string') return false;
   const tabId = sender.tab ? sender.tab.id : message.tabId;
@@ -245,23 +264,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
 
-      case 'REANALYZE_LATEST': {
-        const last = await getLastByTab();
-        const entry = last[tabId];
-        if (!entry) {
-          forward({ type: 'ERROR', message: 'Bitte zuerst ein Brett markieren.', tabId }, tabId);
-          break;
-        }
+      case 'REANALYZE_LATEST':
+        await reanalyzeLatest(tabId);
+        break;
+
+      case 'TOGGLE_TURN': {
         const settings = await getSettings();
-        const requestId = nextRequestId(tabId);
-        forward({ type: 'STATUS', text: 'Stockfish rechnet…', requestId, tabId }, tabId);
-        if (entry.board) {
-          await toHost({ type: 'HOST_SET_BOARD', requestId, tabId, board: entry.board, changedIndices: [], settings });
-        } else if (entry.grid) {
-          await rebuildFromGrid(tabId, entry.grid, 'Stockfish rechnet…');
-        } else {
-          forward({ type: 'ERROR', message: 'Keine Stellung gespeichert – bitte neu markieren.', tabId }, tabId);
-        }
+        settings.turn = settings.turn === 'w' ? 'b' : 'w';
+        await chrome.storage.session.set({ settings });
+        chrome.runtime.sendMessage({ type: 'SETTINGS', settings }).catch(() => {});
+        await reanalyzeLatest(tabId);
         break;
       }
 
@@ -277,6 +289,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (old.orientation !== settings.orientation) {
           const last = await getLastByTab();
           if (last[tabId] && last[tabId].grid) await rebuildFromGrid(tabId, last[tabId].grid, 'Brett wird gedreht…');
+        } else if (old.turn !== settings.turn) {
+          await reanalyzeLatest(tabId);
         }
         break;
       }
@@ -313,15 +327,8 @@ chrome.runtime.onMessage.addListener(async message => {
   if (tabId == null) return;
   await forward(message, tabId);
   if (message.type === 'POSITION') {
-    if (message.turn) {
-      const settings = await getSettings();
-      if (settings.turn !== message.turn) {
-        settings.turn = message.turn;
-        await chrome.storage.session.set({ settings });
-        chrome.runtime.sendMessage({ type: 'SETTINGS', settings }).catch(() => {});
-      }
-    }
     // Nach der ersten erkannten Stellung dauerhaft nach Zügen Ausschau halten.
+    // Die Zugfarbe kommt ausschließlich aus den Einstellungen, nicht aus dem Screenshot.
     await startWatch(tabId);
   }
 });

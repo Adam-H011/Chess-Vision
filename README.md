@@ -20,7 +20,10 @@ direkt auf dem markierten Brett an. Alles läuft lokal – keine API, kein Serve
 3. Die Extension erkennt die Figuren, baut die FEN und zeichnet den besten Zug als grünen Pfeil
 4. Danach läuft ChessVision im **Live-Modus** weiter: Sobald du auf der Website einen Zug machst,
    wird die Stellung automatisch neu erkannt und der nächste Zug vorgeschlagen – ohne erneutes Markieren.
-5. Bei Fehlern: im Overlay auf **✎** klicken. Die Felder sind nach Farbe markiert
+5. Die Zugfarbe kommt immer aus **„Ich spiele als“** im Popup – sie wird nach deinem Zug **nicht**
+   automatisch gewechselt. Im Overlay zeigt `Weiß`/`Schwarz` die analysierte Farbe; mit **W↔B**
+   kannst du die Perspektive jederzeit manuell umschalten.
+6. Bei Fehlern: im Overlay auf **✎** klicken. Die Felder sind nach Farbe markiert
    (weißer Ring = weiße Figur, schwarzer Ring = schwarze Figur). Im Auswähler gibt es getrennte
    Reihen für **Weiß** und **Schwarz**, einen Button **◐ Farbe wechseln** und **leer**.
    Nach der letzten Änderung wird die Stellung automatisch übernommen; **✓ Übernehmen** geht sofort.
@@ -41,7 +44,7 @@ Die Markierungs-Ebene liegt darüber, das Ziehen des Rechtecks funktioniert trot
 - `sprites/` – mitgelieferte Chess.com-Neo-Vorlagen (aus dem früheren Python-Projekt)
 - Zusätzlich werden Unicode-Schachglyphen in mehreren Fonts als Vorlagen erzeugt
 - Der Live-Modus vergleicht etwa jede Sekunde einen frischen Screenshot mit dem letzten 8×8-Raster;
-  erst wenn eine Änderung zweimal bestätigt wurde, wird neu analysiert (und die Zugfarbe gewechselt)
+  erst wenn eine Änderung zweimal bestätigt wurde, wird mit der gewählten Zugfarbe neu analysiert
 - Korrekturen werden als Vorlagen gelernt, damit dieselbe Seite beim nächsten Mal besser erkannt wird
 - `engine/stockfish-19-lite-single.js/.wasm` – Stockfish 19 (Lite, single-threaded), ~1,8 MB
 - `lib/chess.js` – FEN-Validierung, Legality-Check und SAN-Umwandlung

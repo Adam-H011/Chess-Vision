@@ -45,6 +45,7 @@
       box-shadow: 0 6px 24px rgba(0,0,0,.45); }
     .cv-badge .cv-move { color: #2ee6a0; font-weight: 800; font-size: 16px; }
     .cv-badge .cv-eval { color: #cfe9dd; }
+    .cv-badge .cv-side { color: #ffd54f; font-size: 11px; font-weight: 700; }
     .cv-badge .cv-live { color: #7fcdb2; font-size: 11px; letter-spacing: .04em; }
     .cv-badge .cv-live.on { color: #2ee6a0; }
     .cv-badge button { background: #1c3a30; color: #dff7ec; border: 1px solid #35705c;
@@ -311,7 +312,9 @@
     }
     badge.innerHTML =
       `<span class="cv-live ${watchLive ? 'on' : ''}">${watchLive ? '● LIVE' : '○ LIVE'}</span>` +
+      `<span class="cv-side" title="Analysierte Zugfarbe">${state.turn === 'b' ? 'Schwarz' : 'Weiß'}</span>` +
       main +
+      `<button data-act="turn" title="Zugfarbe wechseln (Weiß/Schwarz)">W↔B</button>` +
       `<button data-act="live" class="${watchLive ? 'live-on' : ''}" title="Live-Analyse ein/aus">${watchLive ? '⏸' : '▶'}</button>` +
       '<button data-act="reselect" title="Brett neu markieren">⬚</button>' +
       '<button data-act="refresh" title="Neu analysieren">↻</button>' +
@@ -322,6 +325,7 @@
       button.addEventListener('click', () => {
         const act = button.dataset.act;
         if (act === 'live') post({ type: 'TOGGLE_WATCH' });
+        else if (act === 'turn') post({ type: 'TOGGLE_TURN' });
         else if (act === 'reselect') startSelection();
         else if (act === 'refresh') post({ type: 'REANALYZE_LATEST' });
         else if (act === 'correct') enterCorrection();
