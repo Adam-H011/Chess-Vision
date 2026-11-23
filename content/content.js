@@ -92,7 +92,6 @@
   let selecting = false;
   let reposition = null;
   let toastTimer = null;
-  let applyTimer = null;
   let watchLive = false;
 
   function ensureHost() {
@@ -214,8 +213,6 @@
 
   function clearOverlay() {
     if (!shadow) return;
-    clearTimeout(applyTimer);
-    applyTimer = null;
     if (reposition) {
       window.removeEventListener('scroll', reposition, true);
       window.removeEventListener('resize', reposition);
@@ -380,8 +377,6 @@
 
   function applyCorrection() {
     if (!correctionMode || !state) return;
-    clearTimeout(applyTimer);
-    applyTimer = null;
     post({
       type: 'BOARD_CORRECTED',
       board: correctBoard,
@@ -394,17 +389,13 @@
     render();
   }
 
-  function scheduleCorrection() {
-    clearTimeout(applyTimer);
-    applyTimer = setTimeout(applyCorrection, 900);
-  }
-
   function renderCorrection() {
+    const count = changedCells.size;
     badge.innerHTML =
-      '<span class="cv-move" style="font-size:14px">Figur korrigieren</span>' +
-      `<span class="cv-live ${applyTimer ? 'on' : ''}">${applyTimer ? '✓ wird übernommen…' : 'Weiß/Schwarz wählen'}</span>` +
-      '<button data-act="apply" title="Korrigierte Stellung sofort analysieren">✓ Übernehmen</button>' +
-      '<button data-act="reset" title="Erkennung wiederherstellen">↺</button>' +
+      '<span class="cv-move" style="font-size:14px">Figuren korrigieren</span>' +
+      `<span class="cv-side">${count ? count + (count === 1 ? ' Feld geändert' : ' Felder geändert') : 'Weiß/Schwarz wählen'}</span>` +
+      '<button data-act="apply" title="Alle Änderungen an Stockfish geben">✓ Übernehmen</button>' +
+      '<button data-act="reset" title="Alle Änderungen verwerfen">↺</button>' +
       '<button data-act="cancel" title="Abbrechen">✕</button>';
     badge.querySelectorAll('button').forEach(button => {
       button.addEventListener('click', () => {
@@ -412,14 +403,10 @@
         if (act === 'apply') {
           applyCorrection();
         } else if (act === 'reset') {
-          clearTimeout(applyTimer);
-          applyTimer = null;
           correctBoard = state.board.slice();
           changedCells.clear();
           render();
         } else {
-          clearTimeout(applyTimer);
-          applyTimer = null;
           correctionMode = false;
           post({ type: 'WATCH_PAUSE', paused: false });
           render();
@@ -485,7 +472,6 @@
         }
         changedCells.add(index);
         picker.style.display = 'none';
-        scheduleCorrection();
         render();
       });
     });

@@ -26,7 +26,8 @@ direkt auf dem markierten Brett an. Alles läuft lokal – keine API, kein Serve
 6. Bei Fehlern: im Overlay auf **✎** klicken. Die Felder sind nach Farbe markiert
    (weißer Ring = weiße Figur, schwarzer Ring = schwarze Figur). Im Auswähler gibt es getrennte
    Reihen für **Weiß** und **Schwarz**, einen Button **◐ Farbe wechseln** und **leer**.
-   Nach der letzten Änderung wird die Stellung automatisch übernommen; **✓ Übernehmen** geht sofort.
+   Du kannst beliebig viele Felder ändern; erst **✓ Übernehmen** gibt alle Änderungen an Stockfish.
+   **↺** verwirft alle Änderungen, **✕** bricht ab.
 
 Weitere Overlay-Buttons: **●/○ LIVE** mit **⏸/▶** Live-Analyse ein-/ausschalten, **↻** neu analysieren,
 **⇄** Seite/Brett drehen, **✕** Overlay und Live-Analyse beenden.
