@@ -18,6 +18,16 @@ function getTemplates() {
   return templatesPromise;
 }
 
+function gridsEqual(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      if ((a[r] && a[r][c]) !== (b[r] && b[r][c])) return false;
+    }
+  }
+  return true;
+}
+
 /* ----------------------------- Stockfish UCI ------------------------------ */
 
 class Stockfish {
@@ -133,6 +143,7 @@ async function analyzePosition(context) {
     tabId,
     fen: resolved.fen,
     board,
+    turn: resolved.turn,
     orientation: settings.orientation,
     rect: context.rect,
     uncertain: context.uncertain || []
@@ -202,6 +213,39 @@ async function handleAnalyze(message) {
   }
 }
 
+/* Live-Modus: nur bei einer bestätigten Brettänderung neu analysieren. */
+async function handleWatch(message) {
+  const { requestId, tabId, rect, dpr, settings, imageDataUrl } = message;
+  const previous = contexts.get(tabId);
+  if (!previous) return;
+  try {
+    const vision = await analyzeBoardImage(imageDataUrl, rect, dpr, await getTemplates(), learned);
+    if (gridsEqual(vision.grid, previous.grid)) {
+      previous.pending = null;
+      return;
+    }
+    if (previous.pending && gridsEqual(vision.grid, previous.pending.grid)) {
+      previous.pending = null;
+      const turn = previous.settings.turn === 'w' ? 'b' : 'w';
+      await analyzePosition({
+        requestId,
+        tabId,
+        rect,
+        dpr,
+        settings: Object.assign({}, settings, { turn }),
+        grid: vision.grid,
+        cells: vision.cells,
+        uncertain: vision.uncertain,
+        board: gridToBoard(vision.grid, settings.orientation)
+      });
+    } else {
+      previous.pending = { grid: vision.grid };
+    }
+  } catch (_) {
+    /* Ein einzelner verrauschter Screenshot darf die Schleife nicht beenden. */
+  }
+}
+
 function handleBoard(message, board) {
   const { requestId, tabId, settings } = message;
   const previous = contexts.get(tabId) || {};
@@ -233,6 +277,9 @@ chrome.runtime.onMessage.addListener(message => {
   switch (message.type) {
     case 'ANALYZE':
       handleAnalyze(message);
+      break;
+    case 'HOST_WATCH':
+      handleWatch(message);
       break;
     case 'HOST_SET_BOARD':
       handleBoard(message, message.board);

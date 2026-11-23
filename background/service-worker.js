@@ -7,6 +7,9 @@ const JUSTIFICATION =
 
 let creatingOffscreen = null;
 const requestTabs = new Map();
+const watchers = new Map();   // tabId -> { timer, busy, paused }
+const WATCH_INTERVAL = 1100;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function getSettings() {
   const saved = await chrome.storage.session.get('settings');
@@ -66,12 +69,92 @@ function nextRequestId(tabId) {
   return id;
 }
 
+/* captureVisibleTab expects a WINDOW id, never a tab id. */
+async function captureTab(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  if (tab && tab.windowId != null) {
+    // captureVisibleTab erfasst immer den aktiven Tab des Fensters – nicht unseren,
+    // wenn der Nutzer inzwischen einen anderen Tab geöffnet hat.
+    const active = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+    if (!active.length || active[0].id !== tabId) throw new Error('Tab nicht aktiv');
+    return chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+  }
+  return chrome.tabs.captureVisibleTab({ format: 'png' });
+}
+
+/* --------------------------- Live-Beobachtung ------------------------------ */
+
+function sendWatchState(tabId, live) {
+  toTab(tabId, { type: 'WATCH_STATE', live, tabId });
+  chrome.runtime.sendMessage({ type: 'WATCH_STATE', live, tabId }).catch(() => {});
+}
+
+async function startWatch(tabId) {
+  const existing = watchers.get(tabId);
+  if (existing) {
+    existing.paused = false;
+    return;
+  }
+  const watcher = { timer: null, busy: false, paused: false };
+  watchers.set(tabId, watcher);
+  watcher.timer = setInterval(() => { watchTick(tabId).catch(() => {}); }, WATCH_INTERVAL);
+  sendWatchState(tabId, true);
+}
+
+function stopWatch(tabId) {
+  const watcher = watchers.get(tabId);
+  if (!watcher) return;
+  clearInterval(watcher.timer);
+  watchers.delete(tabId);
+  sendWatchState(tabId, false);
+}
+
+function pauseWatch(tabId, paused) {
+  const watcher = watchers.get(tabId);
+  if (watcher) watcher.paused = !!paused;
+}
+
+async function watchTick(tabId) {
+  const watcher = watchers.get(tabId);
+  if (!watcher || watcher.paused || watcher.busy) return;
+  watcher.busy = true;
+  let prepared = false;
+  try {
+    const last = (await getLastByTab())[tabId];
+    if (!last || !last.rect) {
+      stopWatch(tabId);
+      return;
+    }
+    const settings = await getSettings();
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: 'CAPTURE_PREPARE' });
+      prepared = true;
+    } catch (_) { /* kein Overlay vorhanden – trotzdem erfassen */ }
+    const imageDataUrl = await captureTab(tabId);
+    const requestId = nextRequestId(tabId);
+    await toHost({
+      type: 'HOST_WATCH',
+      requestId,
+      tabId,
+      imageDataUrl,
+      rect: last.rect,
+      dpr: last.dpr || 1,
+      settings
+    });
+  } catch (_) {
+    // Tab versteckt/minimiert oder nicht erfassbar: einfach der nächste Tick.
+  } finally {
+    if (prepared) toTab(tabId, { type: 'CAPTURE_RESTORE' });
+    if (watchers.has(tabId)) watchers.get(tabId).busy = false;
+  }
+}
+
 async function analyzeScreenshot(message, sender) {
   const tabId = sender.tab && sender.tab.id;
   if (tabId == null) return;
   try {
     const settings = await getSettings();
-    const imageDataUrl = await chrome.tabs.captureVisibleTab(tabId, { format: 'png' });
+    const imageDataUrl = await captureTab(tabId);
     const requestId = nextRequestId(tabId);
     const rect = message.rect;
     await saveLast(tabId, { rect, dpr: message.dpr, requestId, tabId, orientation: settings.orientation });
@@ -117,6 +200,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   (async () => {
     switch (message.type) {
+      case 'START_SELECTION':
+        pauseWatch(tabId, true);
+        // Erst das Popup schließen lassen, sonst liegt es über dem Brett.
+        await sleep(180);
+        toTab(tabId, { type: 'START_SELECTION' });
+        break;
+
+      case 'WATCH_PAUSE':
+        pauseWatch(tabId, message.paused);
+        break;
+
+      case 'WATCH_STOP':
+        stopWatch(tabId);
+        break;
+
+      case 'TOGGLE_WATCH': {
+        if (watchers.has(tabId)) {
+          stopWatch(tabId);
+        } else {
+          const last = (await getLastByTab())[tabId];
+          if (last && last.rect) await startWatch(tabId);
+          else forward({ type: 'ERROR', message: 'Bitte zuerst ein Brett markieren.', tabId }, tabId);
+        }
+        break;
+      }
+
       case 'BOARD_SELECTED':
         await analyzeScreenshot(message, sender);
         break;
@@ -180,6 +289,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       case 'CLEAR_BOARD': {
+        stopWatch(tabId);
         const last = await getLastByTab();
         delete last[tabId];
         await chrome.storage.session.set({ lastByTab: last });
@@ -196,15 +306,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 /* Antworten des Offscreen-Dokuments an Tab und Popup weiterleiten. */
-chrome.runtime.onMessage.addListener(message => {
+chrome.runtime.onMessage.addListener(async message => {
   if (!message || typeof message.type !== 'string') return;
   if (!['STATUS', 'POSITION', 'RESULT', 'ERROR'].includes(message.type)) return;
   const tabId = message.tabId != null ? message.tabId : requestTabs.get(message.requestId);
   if (tabId == null) return;
-  forward(message, tabId);
+  await forward(message, tabId);
+  if (message.type === 'POSITION') {
+    if (message.turn) {
+      const settings = await getSettings();
+      if (settings.turn !== message.turn) {
+        settings.turn = message.turn;
+        await chrome.storage.session.set({ settings });
+        chrome.runtime.sendMessage({ type: 'SETTINGS', settings }).catch(() => {});
+      }
+    }
+    // Nach der ersten erkannten Stellung dauerhaft nach Zügen Ausschau halten.
+    await startWatch(tabId);
+  }
 });
 
 chrome.tabs.onRemoved.addListener(async tabId => {
+  stopWatch(tabId);
   const last = await getLastByTab();
   if (last[tabId]) {
     delete last[tabId];

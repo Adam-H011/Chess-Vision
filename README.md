@@ -13,13 +13,24 @@ direkt auf dem markierten Brett an. Alles läuft lokal – keine API, kein Serve
 
 ## Bedienung
 
-1. Auf der Schachseite auf das ChessVision-Symbol klicken → **Brett jetzt markieren**
+1. Auf der Schachseite auf das ChessVision-Symbol klicken → **Brett jetzt markieren**.
+   Das Popup schließt sich sofort und liegt danach nicht mehr über dem Brett.
+   Alternativ geht im Overlay jederzeit der Button **⬚** (Brett neu markieren).
 2. Mit gedrückter linker Maustaste ein Rechteck **genau um die 64 Felder** ziehen (nicht um Rand, Koordinaten oder Uhr)
 3. Die Extension erkennt die Figuren, baut die FEN und zeichnet den besten Zug als grünen Pfeil
-4. Bei Fehlern: im Overlay auf **✎** klicken, Figuren anklicken und korrigieren → **✓ Übernehmen**
+4. Danach läuft ChessVision im **Live-Modus** weiter: Sobald du auf der Website einen Zug machst,
+   wird die Stellung automatisch neu erkannt und der nächste Zug vorgeschlagen – ohne erneutes Markieren.
+5. Bei Fehlern: im Overlay auf **✎** klicken. Die Felder sind nach Farbe markiert
+   (weißer Ring = weiße Figur, schwarzer Ring = schwarze Figur). Im Auswähler gibt es getrennte
+   Reihen für **Weiß** und **Schwarz**, einen Button **◐ Farbe wechseln** und **leer**.
+   Nach der letzten Änderung wird die Stellung automatisch übernommen; **✓ Übernehmen** geht sofort.
 
-Weitere Overlay-Buttons: **↻** neu analysieren, **⇄** Seite/Brett drehen, **✕** schließen.
+Weitere Overlay-Buttons: **●/○ LIVE** mit **⏸/▶** Live-Analyse ein-/ausschalten, **↻** neu analysieren,
+**⇄** Seite/Brett drehen, **✕** Overlay und Live-Analyse beenden.
 Im Popup lassen sich die eigene Farbe und die Denkzeit (0,3–4 s) einstellen.
+
+Hinweis: Website-eigene Dialoge (z. B. Werbe- oder Belohnungs-Pop-ups) können optisch stören.
+Die Markierungs-Ebene liegt darüber, das Ziehen des Rechtecks funktioniert trotzdem.
 
 ## Funktionsweise
 
@@ -29,6 +40,8 @@ Im Popup lassen sich die eigene Farbe und die Denkzeit (0,3–4 s) einstellen.
 - `engine/vision.js` – 8×8-Raster, Farberkennung und Figurenklassifikation per Kanten-/Silhouetten-Matching
 - `sprites/` – mitgelieferte Chess.com-Neo-Vorlagen (aus dem früheren Python-Projekt)
 - Zusätzlich werden Unicode-Schachglyphen in mehreren Fonts als Vorlagen erzeugt
+- Der Live-Modus vergleicht etwa jede Sekunde einen frischen Screenshot mit dem letzten 8×8-Raster;
+  erst wenn eine Änderung zweimal bestätigt wurde, wird neu analysiert (und die Zugfarbe gewechselt)
 - Korrekturen werden als Vorlagen gelernt, damit dieselbe Seite beim nächsten Mal besser erkannt wird
 - `engine/stockfish-19-lite-single.js/.wasm` – Stockfish 19 (Lite, single-threaded), ~1,8 MB
 - `lib/chess.js` – FEN-Validierung, Legality-Check und SAN-Umwandlung

@@ -66,13 +66,10 @@ async function settingsChanged(patch) {
   await chrome.runtime.sendMessage({ type: 'SETTINGS_CHANGED', tabId, settings: patch });
 }
 
-elements.select.addEventListener('click', async () => {
-  try {
-    await chrome.tabs.sendMessage(tabId, { type: 'START_SELECTION' });
-    window.close();
-  } catch (error) {
-    setStatus('Markierung hier nicht möglich (z. B. chrome://-Seite).');
-  }
+elements.select.addEventListener('click', () => {
+  // Der Service Worker schließt erst das Popup und startet danach die Markierung.
+  chrome.runtime.sendMessage({ type: 'START_SELECTION', tabId });
+  window.close();
 });
 
 elements.refresh.addEventListener('click', () => {

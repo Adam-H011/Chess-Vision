@@ -17,10 +17,10 @@
       font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #eafaf1; }
     .cv-veil { position: absolute; inset: 0; background: rgba(4, 12, 10, .62);
       pointer-events: auto; cursor: crosshair; }
-    .cv-help { position: absolute; left: 50%; top: 28px; transform: translateX(-50%);
-      background: #10241d; border: 1px solid #2ee6a0; border-radius: 12px;
-      padding: 12px 20px; font-size: 14px; line-height: 1.5; text-align: center;
-      box-shadow: 0 12px 40px rgba(0,0,0,.5); pointer-events: none; max-width: 90vw; }
+    .cv-help { position: absolute; left: 50%; top: 16px; transform: translateX(-50%);
+      background: #10241d; border: 1px solid #2ee6a0; border-radius: 10px;
+      padding: 8px 14px; font-size: 13px; line-height: 1.4; text-align: center;
+      box-shadow: 0 12px 40px rgba(0,0,0,.5); pointer-events: none; max-width: min(560px, 90vw); }
     .cv-help b { color: #2ee6a0; }
     .cv-box { position: absolute; display: none; border: 3px dashed #2ee6a0;
       background: rgba(46, 230, 160, .12); box-shadow: 0 0 0 9999px rgba(4,12,10,.35); }
@@ -33,32 +33,47 @@
       background: rgba(0, 200, 130, .04); pointer-events: auto; cursor: pointer; }
     .cv-cell:hover { background: rgba(46, 230, 160, .35); }
     .cv-cell.changed { background: rgba(255, 193, 7, .4); }
+    .cv-cell.cv-white { box-shadow: inset 0 0 0 3px rgba(255,255,255,.9); }
+    .cv-cell.cv-black { box-shadow: inset 0 0 0 3px rgba(0,0,0,.9); }
     .cv-cell span { position: absolute; inset: 0; display: flex; align-items: center;
       justify-content: center; font-size: clamp(14px, 4vw, 34px); line-height: 1; }
+    .cv-cell.cv-white span { color: #fff; text-shadow: 0 0 3px #000, 0 0 6px #000; }
+    .cv-cell.cv-black span { color: #0b0b0b; text-shadow: 0 0 3px #fff, 0 0 6px #fff; }
     .cv-badge { position: absolute; left: 0; top: -46px; display: flex; align-items: center;
       gap: 8px; background: #10241d; border: 1px solid #2ee6a0; border-radius: 10px;
       padding: 6px 10px; font-size: 13px; white-space: nowrap; pointer-events: auto;
       box-shadow: 0 6px 24px rgba(0,0,0,.45); }
     .cv-badge .cv-move { color: #2ee6a0; font-weight: 800; font-size: 16px; }
     .cv-badge .cv-eval { color: #cfe9dd; }
+    .cv-badge .cv-live { color: #7fcdb2; font-size: 11px; letter-spacing: .04em; }
+    .cv-badge .cv-live.on { color: #2ee6a0; }
     .cv-badge button { background: #1c3a30; color: #dff7ec; border: 1px solid #35705c;
       border-radius: 6px; padding: 2px 7px; cursor: pointer; font-size: 13px; line-height: 1.4; }
     .cv-badge button:hover { background: #2ee6a0; color: #072015; border-color: #2ee6a0; }
+    .cv-badge button.live-on { background: #2ee6a0; color: #072015; border-color: #2ee6a0; }
     .cv-spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid #2ee6a0;
       border-right-color: transparent; border-radius: 50%; animation: cvspin .7s linear infinite; }
     @keyframes cvspin { to { transform: rotate(360deg); } }
     .cv-picker { position: absolute; display: none; pointer-events: auto; z-index: 5;
-      background: #10241d; border: 1px solid #2ee6a0; border-radius: 10px; padding: 8px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.6); width: 246px; }
-    .cv-picker .cv-title { font-size: 12px; color: #9dd8c1; margin-bottom: 6px; }
-    .cv-picker .cv-choices { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+      background: #10241d; border: 1px solid #2ee6a0; border-radius: 10px; padding: 9px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.6); width: 306px; }
+    .cv-picker .cv-title { font-size: 12px; color: #9dd8c1; margin-bottom: 7px; }
+    .cv-picker .cv-group-title { font-size: 11px; font-weight: 700; margin: 5px 0 3px; }
+    .cv-picker .cv-group-title.white { color: #fff; }
+    .cv-picker .cv-group-title.black { color: #0b0b0b; background: #cfd8d3;
+      border-radius: 4px; padding: 1px 5px; display: inline-block; }
+    .cv-picker .cv-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; }
     .cv-picker button { background: #1c3a30; border: 1px solid #35705c; color: #fff;
-      border-radius: 5px; height: 30px; cursor: pointer; font-size: 19px; line-height: 1; padding: 0; }
+      border-radius: 5px; height: 40px; cursor: pointer; font-size: 19px; line-height: 1; padding: 2px 0 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
     .cv-picker button:hover { background: #2ee6a0; color: #062016; }
-    .cv-picker .cv-empty { font-size: 10px; }
+    .cv-picker button.cv-white-piece { color: #fff; text-shadow: 0 0 3px #000; }
+    .cv-picker button.cv-black-piece { color: #101010; background: #d9e2dd; border-color: #94a39c; }
+    .cv-picker button.cv-black-piece:hover { background: #2ee6a0; color: #062016; }
+    .cv-picker .cv-letter { font-size: 9px; opacity: .85; }
     .cv-picker .cv-actions { display: flex; gap: 6px; margin-top: 8px; }
-    .cv-picker .cv-actions button { flex: 1; height: auto; padding: 5px; font-size: 12px; }
-    .cv-toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+    .cv-picker .cv-actions button { flex: 1; height: auto; padding: 6px; font-size: 12px; }
+    .cv-toast { position: fixed; right: 18px; bottom: 18px; left: auto; transform: none;
       background: #10241d; border: 1px solid #2ee6a0; border-radius: 10px; padding: 10px 16px;
       font-size: 13px; pointer-events: none; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
   `;
@@ -76,6 +91,8 @@
   let selecting = false;
   let reposition = null;
   let toastTimer = null;
+  let applyTimer = null;
+  let watchLive = false;
 
   function ensureHost() {
     if (shadow) return shadow;
@@ -114,20 +131,23 @@
   function startSelection() {
     ensureHost();
     clearOverlay();
+    post({ type: 'WATCH_PAUSE', paused: true });
     selecting = true;
     const veil = document.createElement('div');
     veil.className = 'cv-veil';
     veil.innerHTML =
-      '<div class="cv-help">Ziehe ein Rechteck <b>genau um die 64 Felder</b> des Schachbretts.<br>' +
-      'Danach erkennt ChessVision die Stellung und zeigt den besten Stockfish-Zug. (Esc = abbrechen)</div>' +
+      '<div class="cv-help">Rechteck <b>genau um die 64 Felder</b> ziehen – der Rest der Seite ist egal.<br>' +
+      'Danach läuft die Analyse automatisch weiter. (Esc = abbrechen)</div>' +
       '<div class="cv-box"><div class="cv-size"></div></div>';
     shadow.appendChild(veil);
     const box = veil.querySelector('.cv-box');
     const size = veil.querySelector('.cv-size');
+    const help = veil.querySelector('.cv-help');
     let start = null;
 
     function draw(e) {
       if (!start) return;
+      if (help) help.style.display = 'none';
       const x = Math.min(start.x, e.clientX);
       const y = Math.min(start.y, e.clientY);
       const w = Math.abs(e.clientX - start.x);
@@ -163,12 +183,14 @@
           dpr: window.devicePixelRatio || 1
         });
       } else {
+        post({ type: 'WATCH_PAUSE', paused: false });
         showToast('Bitte ein größeres Rechteck um das Brett ziehen.');
       }
     }
     function onKey(e) {
       if (e.key === 'Escape') {
         cleanup();
+        post({ type: 'WATCH_PAUSE', paused: false });
         showToast('Markierung abgebrochen.');
       }
     }
@@ -191,6 +213,8 @@
 
   function clearOverlay() {
     if (!shadow) return;
+    clearTimeout(applyTimer);
+    applyTimer = null;
     if (reposition) {
       window.removeEventListener('scroll', reposition, true);
       window.removeEventListener('resize', reposition);
@@ -285,18 +309,27 @@
     } else {
       main = '<span>Kein Zug gefunden</span>';
     }
-    badge.innerHTML = main +
+    badge.innerHTML =
+      `<span class="cv-live ${watchLive ? 'on' : ''}">${watchLive ? '● LIVE' : '○ LIVE'}</span>` +
+      main +
+      `<button data-act="live" class="${watchLive ? 'live-on' : ''}" title="Live-Analyse ein/aus">${watchLive ? '⏸' : '▶'}</button>` +
+      '<button data-act="reselect" title="Brett neu markieren">⬚</button>' +
       '<button data-act="refresh" title="Neu analysieren">↻</button>' +
       '<button data-act="correct" title="Figuren korrigieren">✎</button>' +
       '<button data-act="flip" title="Farben tauschen / Brett drehen">⇄</button>' +
-      '<button data-act="close" title="Overlay schließen">✕</button>';
+      '<button data-act="close" title="Overlay und Live-Analyse beenden">✕</button>';
     badge.querySelectorAll('button').forEach(button => {
       button.addEventListener('click', () => {
         const act = button.dataset.act;
-        if (act === 'refresh') post({ type: 'REANALYZE_LATEST' });
+        if (act === 'live') post({ type: 'TOGGLE_WATCH' });
+        else if (act === 'reselect') startSelection();
+        else if (act === 'refresh') post({ type: 'REANALYZE_LATEST' });
         else if (act === 'correct') enterCorrection();
         else if (act === 'flip') post({ type: 'FLIP_ORIENTATION' });
-        else clearOverlay();
+        else {
+          post({ type: 'WATCH_STOP' });
+          clearOverlay();
+        }
       });
     });
     if (result && result.bestmove && (!state.uncertain || state.uncertain.length === 0)) {
@@ -337,35 +370,54 @@
     correctionMode = true;
     correctBoard = state.board.slice();
     changedCells = new Set();
+    post({ type: 'WATCH_PAUSE', paused: true });
     render();
+  }
+
+  function applyCorrection() {
+    if (!correctionMode || !state) return;
+    clearTimeout(applyTimer);
+    applyTimer = null;
+    post({
+      type: 'BOARD_CORRECTED',
+      board: correctBoard,
+      changedIndices: [...changedCells],
+      requestId: state.requestId
+    });
+    correctionMode = false;
+    state.busy = 'Neue Stellung wird analysiert…';
+    state.result = null;
+    render();
+  }
+
+  function scheduleCorrection() {
+    clearTimeout(applyTimer);
+    applyTimer = setTimeout(applyCorrection, 900);
   }
 
   function renderCorrection() {
     badge.innerHTML =
       '<span class="cv-move" style="font-size:14px">Figur korrigieren</span>' +
-      '<button data-act="apply" title="Korrigierte Stellung analysieren">✓ Übernehmen</button>' +
+      `<span class="cv-live ${applyTimer ? 'on' : ''}">${applyTimer ? '✓ wird übernommen…' : 'Weiß/Schwarz wählen'}</span>` +
+      '<button data-act="apply" title="Korrigierte Stellung sofort analysieren">✓ Übernehmen</button>' +
       '<button data-act="reset" title="Erkennung wiederherstellen">↺</button>' +
       '<button data-act="cancel" title="Abbrechen">✕</button>';
     badge.querySelectorAll('button').forEach(button => {
       button.addEventListener('click', () => {
         const act = button.dataset.act;
         if (act === 'apply') {
-          post({
-            type: 'BOARD_CORRECTED',
-            board: correctBoard,
-            changedIndices: [...changedCells],
-            requestId: state.requestId
-          });
-          correctionMode = false;
-          state.busy = 'Neue Stellung wird analysiert…';
-          state.result = null;
-          render();
+          applyCorrection();
         } else if (act === 'reset') {
+          clearTimeout(applyTimer);
+          applyTimer = null;
           correctBoard = state.board.slice();
           changedCells.clear();
           render();
         } else {
+          clearTimeout(applyTimer);
+          applyTimer = null;
           correctionMode = false;
+          post({ type: 'WATCH_PAUSE', paused: false });
           render();
         }
       });
@@ -379,7 +431,9 @@
         const square = squareFromScreen(r, c, state.orientation);
         const symbol = correctBoard[square];
         const cell = document.createElement('div');
-        cell.className = 'cv-cell' + (changedCells.has(idx) ? ' changed' : '');
+        cell.className = 'cv-cell' +
+          (symbol ? (symbol === symbol.toUpperCase() ? ' cv-white' : ' cv-black') : '') +
+          (changedCells.has(idx) ? ' changed' : '');
         cell.style.cssText = `left:${c * cw}px;top:${r * ch}px;width:${cw}px;height:${ch}px`;
         if (symbol) {
           const span = document.createElement('span');
@@ -393,21 +447,41 @@
     }
   }
 
+  function pieceButton(piece) {
+    const white = piece === piece.toUpperCase();
+    return `<button data-piece="${piece}" class="${white ? 'cv-white-piece' : 'cv-black-piece'}" ` +
+      `title="${white ? 'Weiß' : 'Schwarz'} ${piece}">` +
+      `<span>${GLYPHS[piece]}</span><span class="cv-letter">${piece}</span></button>`;
+  }
+
   function openPicker(index, square, x, y, cw, ch) {
-    picker.innerHTML = '<div class="cv-title">Figur auf ' + squareName(square) + '</div>' +
-      '<div class="cv-choices">' +
-      PIECES.map(p => `<button data-piece="${p}" title="${p === '' ? 'leer' : p}">${GLYPHS[p]}</button>`).join('') +
-      '<button data-piece="" class="cv-empty" title="Feld leeren">leer</button>' +
+    picker.innerHTML =
+      '<div class="cv-title">Figur auf ' + squareName(square) + '</div>' +
+      '<div class="cv-group-title white">Weiß</div>' +
+      '<div class="cv-row">' + PIECES.filter(p => p === p.toUpperCase()).map(pieceButton).join('') + '</div>' +
+      '<div class="cv-group-title black">Schwarz</div>' +
+      '<div class="cv-row">' + PIECES.filter(p => p === p.toLowerCase()).map(pieceButton).join('') + '</div>' +
+      '<div class="cv-actions">' +
+      '<button data-act="toggle-color" title="Farbe dieser Figur wechseln">◐ Farbe wechseln</button>' +
+      '<button data-piece="" title="Feld leeren">leer</button>' +
       '</div>';
     picker.style.display = 'block';
-    picker.style.left = Math.max(0, Math.min(x - 60, state.rect.width - 254)) + 'px';
-    picker.style.top = Math.min(state.rect.height - 120, y + ch / 2) + 'px';
+    picker.style.left = Math.max(0, Math.min(x - 150, state.rect.width - 322)) + 'px';
+    picker.style.top = Math.max(0, Math.min(state.rect.height - 200, y + ch / 2)) + 'px';
     picker.querySelectorAll('button').forEach(button => {
       button.addEventListener('click', () => {
-        const piece = button.dataset.piece || null;
-        correctBoard[square] = piece;
+        const act = button.dataset.act;
+        if (act === 'toggle-color') {
+          const current = correctBoard[square];
+          correctBoard[square] = current
+            ? (current === current.toUpperCase() ? current.toLowerCase() : current.toUpperCase())
+            : 'P';
+        } else {
+          correctBoard[square] = button.dataset.piece || null;
+        }
         changedCells.add(index);
         picker.style.display = 'none';
+        scheduleCorrection();
         render();
       });
     });
@@ -421,11 +495,28 @@
 
   /* ----------------------------- Nachrichten ------------------------------ */
 
-  chrome.runtime.onMessage.addListener(message => {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!message || typeof message.type !== 'string') return;
     switch (message.type) {
       case 'START_SELECTION':
         startSelection();
+        break;
+      case 'WATCH_STATE':
+        watchLive = !!message.live;
+        if (state && !correctionMode) render();
+        break;
+      case 'CAPTURE_PREPARE':
+        // Nur der Pfeil wird kurz ausgeblendet, damit die Live-Erkennung nicht
+        // die eigene Overlay-Grafik als Figur misinterpretiert.
+        if (svgLayer) svgLayer.style.visibility = 'hidden';
+        if (gridLayer) gridLayer.style.visibility = 'hidden';
+        setTimeout(() => {
+          try { sendResponse({ ok: true }); } catch (_) { /* ignorieren */ }
+        }, 40);
+        return true;
+      case 'CAPTURE_RESTORE':
+        if (svgLayer) svgLayer.style.visibility = '';
+        if (gridLayer) gridLayer.style.visibility = '';
         break;
       case 'STATUS':
         if (state && !correctionMode) {
