@@ -678,6 +678,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tracking_status.setText("Tracking: stopped.")
         self._refresh_state_controls()
 
+    def _should_process_monitor_image(self, image: np.ndarray) -> bool:
+        """Decide whether a fresh captured image merits a tracking pass.
+
+        A full-crop mean is only a coarse CPU optimisation.  A pawn moving on
+        a large, otherwise static board can have a mean below one intensity
+        level even though the change-first tracker has strong local evidence.
+        Once a confirmed visual baseline exists, let that tracker make the
+        per-square decision instead.  PipeWire sequence IDs still prevent a
+        cached frame from counting twice.
+        """
+        if self._monitor_last_frame is None or image.shape != self._monitor_last_frame.shape:
+            return True
+        difference = float(np.mean(np.abs(image.astype(np.int16) - self._monitor_last_frame.astype(np.int16))))
+        if difference >= 1.0:
+            return True
+        return self._visual_tracker.ready or self._tracker.needs_stability_observation
+
     def _monitor_tick(self) -> None:
         if self._monitor_worker is not None and self._monitor_worker.isRunning():
             return
@@ -700,14 +717,8 @@ class MainWindow(QtWidgets.QMainWindow):
             image = crop_frame(frame, self._monitor_region)
         except (CaptureError, InvalidRegionError) as exc:
             self._tracking_capture_error(str(exc)); return
-        # Skip visually identical frames before invoking OpenCV/template matching.
-        if self._monitor_last_frame is not None and image.shape == self._monitor_last_frame.shape:
-            identical = float(np.mean(np.abs(image.astype(np.int16) - self._monitor_last_frame.astype(np.int16)))) < 1.0
-            # Normally skip a settled frame to save CPU. Once a legal visual
-            # candidate exists, however, that same settled frame is precisely
-            # the second observation required to confirm either colour's move.
-            if identical and not self._tracker.needs_stability_observation:
-                return
+        if not self._should_process_monitor_image(image):
+            return
         self._monitor_last_frame = image.copy()
         self._monitor_last_sequence = self._monitor_frame_info.sequence_id
         orientation = self._tracking_orientation or self.orientation.currentData()

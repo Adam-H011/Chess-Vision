@@ -6,6 +6,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import chess
+import cv2
+import chessvision.gui as gui_module
 from PySide6.QtWidgets import QApplication
 from PySide6 import QtCore
 
@@ -14,7 +16,7 @@ from chessvision.gui import BoardCanvas, MainWindow
 from chessvision.gui import PreviewWidget
 from chessvision.piece_recognition import PiecePrediction
 from chessvision.position import AnalysisMode, Position
-from chessvision.capture import CaptureRegion
+from chessvision.capture import CaptureRegion, FrameInfo
 from chessvision.tracking import TrackingState
 
 
@@ -24,6 +26,21 @@ def fen_position() -> Position:
 
 def empty_predictions() -> dict[str, PiecePrediction]:
     return {f"{file_name}{rank}": PiecePrediction("empty", 1.0, False) for file_name in "abcdefgh" for rank in range(1, 9)}
+
+
+def rendered_board(board: chess.Board) -> np.ndarray:
+    """A compact board image with pawn-sized changes, like a board crop."""
+    square_size = 80
+    image = np.zeros((square_size * 8, square_size * 8, 3), dtype=np.uint8)
+    for row in range(8):
+        for col in range(8):
+            image[row * square_size:(row + 1) * square_size, col * square_size:(col + 1) * square_size] = (235, 236, 208) if (row + col) % 2 else (115, 149, 82)
+    for square, piece in board.piece_map().items():
+        col, row = chess.square_file(square), 7 - chess.square_rank(square)
+        color = (238, 238, 238) if piece.color else (35, 35, 35)
+        cv2.circle(image, (col * square_size + 40, row * square_size + 40), 18, color, -1)
+        cv2.circle(image, (col * square_size + 40, row * square_size + 40), 18, (15, 15, 15), 2)
+    return image
 
 
 def test_gui_renders_recognized_piece_in_editable_board() -> None:
@@ -157,6 +174,91 @@ def test_white_recommendation_gate_resumes_after_a_confirmed_black_move() -> Non
     board.push_uci("e7e5")
     window._set_position_state(True, "tracked legal move confirmed", board.fen())
     assert window._may_recommend_now()
+    window.close(); app.processEvents()
+
+
+def test_fresh_small_pawn_move_reaches_change_tracking_and_a_fresh_settled_frame_confirms_it(monkeypatch) -> None:
+    """Regression for the old global-MAD gate dropping a legal board change.
+
+    A pawn-sized change over a complete board crop has a crop-wide MAD below
+    one.  It must still reach the visual tracker, and a distinct PipeWire
+    frame with the same settled pixels must remain eligible as the second
+    stability observation.
+    """
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    before = chess.Board()
+    after = before.copy(stack=False); after.push_uci("e2e4")
+    before_image, after_image = rendered_board(before), rendered_board(after)
+    assert float(np.abs(before_image.astype(np.int16) - after_image.astype(np.int16)).mean()) < 1.0
+    grid = BoardGrid.manual(before_image)
+    window._tracker.confirm_initial(before.fen(en_passant="fen"))
+    window._visual_tracker.set_baseline(before_image, grid, "white")
+    window._monitor_last_frame = before_image
+    window._monitor_last_sequence = 10
+
+    class Signal:
+        def connect(self, _callback):
+            pass
+
+    class Worker:
+        submitted: list[np.ndarray] = []
+
+        def __init__(self, image, *_args):
+            self.image = image
+            self.completed_monitoring = Signal()
+            self.failed = Signal()
+
+        def isRunning(self):
+            return False
+
+        def start(self):
+            self.submitted.append(self.image)
+
+    class Capture:
+        def __init__(self):
+            self.sequence = 11
+
+        @property
+        def is_running(self):
+            return False
+
+        def latest_frame_with_info(self):
+            return after_image, FrameInfo(self.sequence, 1, 1, after_image.shape[1], after_image.shape[0])
+
+        def stop(self):
+            pass
+
+    window.capture = Capture()
+    window._monitor_region = CaptureRegion(0, 0, after_image.shape[1], after_image.shape[0])
+    monkeypatch.setattr(gui_module, "MonitoringWorker", Worker)
+
+    # Before the fix this fresh sequence was discarded, so no candidate formed.
+    window._monitor_tick()
+    assert len(Worker.submitted) == 1
+    window._monitor_tick()  # Same sequence is not a second observation.
+    assert len(Worker.submitted) == 1
+    observed = window._visual_tracker.observe(after_image, grid, window._tracker.board)
+    assert observed.candidates[0].move_uci == "e2e4"
+    assert window._tracker.observe_visual_move("e2e4", observed.candidates[0].score).state is TrackingState.CANDIDATE
+
+    # Sequence N+1 has the same settled pixels and is therefore valid
+    # stability evidence, unlike a second poll of sequence N.
+    window.capture.sequence = 12
+    window._monitor_tick()
+    assert len(Worker.submitted) == 2
+    assert window._tracker.observe_visual_move("e2e4", observed.candidates[0].score).state is TrackingState.MOVE_CONFIRMED
+
+    # The same sub-threshold admission applies to Black's compact e7→e6
+    # pawn move; legal turn handling itself is covered by the alternating
+    # change-tracking sequence test.
+    black_after = after.copy(stack=False); black_after.push_uci("e7e6")
+    black_image = rendered_board(black_after)
+    assert float(np.abs(after_image.astype(np.int16) - black_image.astype(np.int16)).mean()) < 1.0
+    window._visual_tracker.set_baseline(after_image, grid, "white")
+    window._monitor_last_frame = after_image
+    assert window._should_process_monitor_image(black_image)
+    assert window._visual_tracker.observe(black_image, grid, window._tracker.board).candidates[0].move_uci == "e7e6"
     window.close(); app.processEvents()
 
 

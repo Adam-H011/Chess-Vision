@@ -61,7 +61,7 @@ def test_alternating_white_and_black_moves_keep_visual_tracking_active():
     visual = ChangeFirstTracker(change_threshold=.05, minimum_score=.10, separation=.01)
     visual.set_baseline(image, grid, "white")
     legal = BoardTracker(); legal.confirm_initial(chess.STARTING_FEN)
-    for uci, expected_turn in (("e2e4", chess.BLACK), ("e7e5", chess.WHITE), ("g1f3", chess.BLACK), ("b8c6", chess.WHITE)):
+    for uci, expected_turn in (("e2e4", chess.BLACK), ("e7e6", chess.WHITE), ("g1f3", chess.BLACK), ("g8f6", chess.WHITE)):
         next_board = board.copy(stack=False); next_board.push_uci(uci)
         next_image = board_frame(next_board)
         observation = visual.observe(next_image, grid, legal.board)
@@ -74,7 +74,7 @@ def test_alternating_white_and_black_moves_keep_visual_tracking_active():
         assert legal.board.turn is expected_turn
         visual.accept_current(next_image, grid)
         board = next_board
-    assert legal.history == ["e4", "e5", "Nf3", "Nc6"]
+    assert legal.history == ["e4", "e6", "Nf3", "Nf6"]
 
 
 def test_visual_tracking_is_independent_of_configured_analysis_side():
