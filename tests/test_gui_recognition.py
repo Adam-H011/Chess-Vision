@@ -5,6 +5,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
+import chess
 from PySide6.QtWidgets import QApplication
 from PySide6 import QtCore
 
@@ -12,6 +13,17 @@ from chessvision.board_detection import BoardGrid
 from chessvision.gui import BoardCanvas, MainWindow
 from chessvision.gui import PreviewWidget
 from chessvision.piece_recognition import PiecePrediction
+from chessvision.position import AnalysisMode, Position
+from chessvision.capture import CaptureRegion
+from chessvision.tracking import TrackingState
+
+
+def fen_position() -> Position:
+    return Position.from_fen(chess.STARTING_FEN)
+
+
+def empty_predictions() -> dict[str, PiecePrediction]:
+    return {f"{file_name}{rank}": PiecePrediction("empty", 1.0, False) for file_name in "abcdefgh" for rank in range(1, 9)}
 
 
 def test_gui_renders_recognized_piece_in_editable_board() -> None:
@@ -74,4 +86,63 @@ def test_editor_shows_source_square_and_supports_undo() -> None:
     window._undo_piece_edit()
     assert window._predictions["a8"].state == "black_rook"
     window.close()
+
+
+def test_valid_fen_import_clears_stale_tracking_uncertainty_and_permits_offline_engine() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window._tracker.confirm_initial(chess.STARTING_FEN)
+    window._tracker.observe_placement(chess.STARTING_BOARD_FEN, uncertain=True)
+    assert window._tracker.state is TrackingState.UNCERTAIN
+    window._apply_position(fen_position())
+    assert window._position_valid and window._confirmed_fen == chess.STARTING_FEN
+    assert window._tracker.state is TrackingState.WAITING_INITIAL
+    assert "ready" in window.tracking_status.text().lower()
+    assert window.mode_selector.currentData() is AnalysisMode.OFFLINE
+    assert window.analyze_position_button.isEnabled()
+    assert "permitted" in window.engine_status.text().lower()
+    window.close(); app.processEvents()
+
+
+def test_tracking_start_requires_confirmation_capture_and_region() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(); window._apply_position(fen_position())
+    assert not window.monitor_start_button.isEnabled()
+    window._confirm_tracking_initial()
+    assert not window.monitor_start_button.isEnabled()
+    window.capture._running = True
+    window._monitor_region = CaptureRegion(0, 0, 80, 80)
+    window._refresh_state_controls()
+    assert window.monitor_start_button.isEnabled()
+    window.close(); app.processEvents()
+
+
+def test_tracking_mismatch_keeps_confirmed_fen_and_offline_engine_available() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(); window._apply_position(fen_position()); window._confirm_tracking_initial()
+    window._monitoring_active = True
+    image = np.zeros((80, 80, 3), dtype=np.uint8)
+    window._monitor_frame_dimensions = (80, 80)
+    window._monitor_region = CaptureRegion(0, 0, 80, 80)
+    window._monitoring_recognized(BoardGrid.manual(image), empty_predictions(), "test")
+    assert window._tracker.state is TrackingState.UNCERTAIN
+    assert window._confirmed_fen == chess.STARTING_FEN
+    assert window._position_valid and window.analyze_position_button.isEnabled()
+    assert "uncertain-position" in window.tracking_status.text()
+    window.close(); app.processEvents()
+
+
+def test_source_switch_and_engine_mode_do_not_reset_confirmed_position() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(); window._apply_position(fen_position())
+    confirmed = window._confirmed_fen
+    window.source_selector.setCurrentIndex(1)
+    assert window._confirmed_fen == confirmed
+    window.mode_selector.setCurrentIndex(3)  # live competitive
+    assert not window.analyze_position_button.isEnabled()
+    assert "blocked" in window.engine_status.text().lower()
+    window.mode_selector.setCurrentIndex(0)  # offline
+    assert window.analyze_position_button.isEnabled()
+    assert "permitted" in window.engine_status.text().lower()
+    window.close(); app.processEvents()
     app.processEvents()

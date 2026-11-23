@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "ChessVision Local Import",
+  "version": "0.1.0",
+  "description": "User-triggered local board import for permitted ChessVision analysis.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["https://www.chess.com/*"],
+  "action": {"default_title": "ChessVision", "default_popup": "popup.html"},
+  "content_scripts": [{"matches": ["https://www.chess.com/*"], "js": ["content.js"], "run_at": "document_idle"}]
+}

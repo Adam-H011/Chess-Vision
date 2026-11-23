@@ -158,6 +158,85 @@ pytest
 
 The test suite mocks Stockfish where practical, so most tests run without an engine installation.
 
+## Position sources and browser import
+
+ChessVision has four position sources: **Browser**, **Screenshot**, **FEN / PGN**, and
+**Manual**. Screenshot recognition is unchanged and remains a fallback; it deliberately
+requires manual metadata before it can become a FEN. FEN/PGN import preserves all state
+from a complete FEN or the final PGN position. The editable board supports all twelve
+pieces/empty squares and Undo.
+
+Browser importing is local, opt-in, and intended only for permitted analysis, completed
+games, coaching, and explicit bot/training contexts. In the GUI select Browser and press
+**Start Browser Import**. Copy the shown `http://127.0.0.1:PORT` address and one-session
+token into the extension popup, then press **Import current board** in the popup and
+**Import Browser Position** in ChessVision. The receiver listens only on `127.0.0.1`,
+uses a fresh random token for every application run, accepts only extension origins, and
+limits/parses JSON before accepting it. It stores no credentials or cookies.
+
+Install the unpacked extension from `browser_extension/`:
+
+- Firefox: visit `about:debugging#/runtime/this-firefox`, select **Load Temporary Add-on**,
+  then select `browser_extension/manifest.json`.
+- Chromium: visit `chrome://extensions`, enable **Developer mode**, select **Load unpacked**,
+  then select the `browser_extension` directory.
+
+The extension uses layered, generic adapters: exposed FEN-like placement first, then
+`data-*` / square-and-piece DOM information. It does not call private APIs, inspect
+network traffic, collect cookies, or infer missing turn/castling/en-passant/clocks from
+pieces. Browser layout compatibility has not been verified against a live Chess.com page;
+inspect every import. Unsupported or ambiguous pages report an error rather than inventing
+a position.
+
+Select an analysis mode before engine use. **Live competitive game** and **Uncertain /
+display only** always disable engine recommendations and arrows. Imported browser data is
+initially treated as unconfirmed; confirmation requires complete, valid metadata. The
+application cannot determine fair-play authorization from page text, so the user must
+choose a permitted mode only where analysis is explicitly allowed.
+
+Troubleshooting: if pairing fails, keep ChessVision running, press Start Browser Import
+again after restart, and replace both popup values; session tokens intentionally expire on
+restart. If metadata is missing, use FEN/PGN import or the board editor and metadata panel.
+
+## Continuous screenshot board tracking
+
+After a screenshot-recognized (or FEN/PGN) position has been reviewed and confirmed, choose
+**Confirm Initial Position**, select the same board crop, and press **Start Monitoring**.
+ChessVision keeps the already-authorized PipeWire stream open and samples the selected crop
+every second (adjustable from 250 ms to 10 s). It skips nearly identical images and never
+runs overlapping recognition jobs.
+
+For each stable recognized placement, ChessVision compares it against every legal next move
+of the authoritative `python-chess` board. A move is accepted only when exactly one legal
+result matches and the same confident observation arrives twice. Castling, captures, en
+passant, promotion, clocks, side-to-move, castling rights, and en-passant targets therefore
+come from the authoritative board state—not reconstructed from pixels. Transient animations,
+uncertain squares, mismatches, and capture interruptions leave the tracked board unchanged
+and show a warning. Use **Manual Resync** only after explicitly correcting and confirming a
+position; **Undo Last Move** pops only a previously confirmed tracked move.
+
+An unchanged recognized board is a valid monitoring heartbeat even when template scores for
+empty/background squares are low. Confidence and uncertainty checks apply to a *changed*
+placement before ChessVision considers legal successors. During monitoring, **Save Current
+Recognition / Tracking Report** exports the current crop and local report. The on-screen
+diagnostics list frame dimensions, one-time crop coordinates, locked orientation, selected
+recognition profile, uncertain-square count, recognized versus authoritative placement,
+square differences, confidence, stability, legal-candidate count, and the exact decision.
+
+Monitoring displays board state and move history but does not automatically start Stockfish.
+The existing fair-play mode restrictions remain in force throughout monitoring.
+
+### Position, tracking, and engine status
+
+These are deliberately separate states. A complete imported FEN/PGN is immediately a
+**valid position** and can be analyzed in Offline, Completed Game, or Permitted Training
+mode; it still needs **Confirm Initial Position** before screenshot monitoring starts.
+Starting monitoring additionally requires an active portal capture and a selected board
+region. A tracking mismatch or uncertain frame only affects **Tracking** and never removes
+an already confirmed FEN or disables otherwise permitted offline engine analysis. Switching
+the source selector alone also does not reset a confirmed position. Live Competitive and
+Uncertain/Display-only modes always block engine recommendations.
+
 ## Roadmap
 
 1. Stockfish engine and command-line analysis (current phase)
