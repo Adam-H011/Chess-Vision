@@ -16,6 +16,28 @@ const elements = {
 
 let tabId = null;
 
+async function ping(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/* Nach einem Reload der Extension sind alte Content Scripts oft „verwaist“.
+   Dann einfach frisch injizieren, statt vom Nutzer einen Seiten-Reload zu verlangen. */
+async function ensureContent(tabId) {
+  if (await ping(tabId)) return true;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['content/content.js'] });
+    await new Promise(resolve => setTimeout(resolve, 150));
+    return await ping(tabId);
+  } catch (_) {
+    return false;
+  }
+}
+
 async function activeTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   return tabs.length ? tabs[0].id : null;
@@ -66,10 +88,19 @@ async function settingsChanged(patch) {
   await chrome.runtime.sendMessage({ type: 'SETTINGS_CHANGED', tabId, settings: patch });
 }
 
-elements.select.addEventListener('click', () => {
-  // Der Service Worker schließt erst das Popup und startet danach die Markierung.
-  chrome.runtime.sendMessage({ type: 'START_SELECTION', tabId });
-  window.close();
+elements.select.addEventListener('click', async () => {
+  try {
+    const target = tabId || (await activeTab());
+    if (!(await ensureContent(target))) {
+      setStatus('Markierung hier nicht möglich (z. B. chrome://-Seite).');
+      return;
+    }
+    // Erst zustellen, dann schließen – sonst kann die Nachricht verloren gehen.
+    await chrome.tabs.sendMessage(target, { type: 'START_SELECTION' });
+    window.close();
+  } catch (error) {
+    setStatus('Markierung nicht möglich. Bitte die Seite neu laden und erneut versuchen.');
+  }
 });
 
 elements.refresh.addEventListener('click', () => {

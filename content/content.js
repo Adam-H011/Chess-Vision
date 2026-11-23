@@ -503,7 +503,8 @@
     if (!message || typeof message.type !== 'string') return;
     switch (message.type) {
       case 'START_SELECTION':
-        startSelection();
+        // Kurz warten, bis sich das Browser-Popup geschlossen hat.
+        setTimeout(startSelection, 180);
         break;
       case 'WATCH_STATE':
         watchLive = !!message.live;
