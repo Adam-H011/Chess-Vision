@@ -222,7 +222,7 @@ class BoardTracker:
         """
         if self.board is None:
             return TrackingUpdate(TrackingState.WAITING_INITIAL, "Confirm an initial position before tracking.")
-        candidates: list[chess.Move] = []
+        candidates: list[tuple[chess.Move, int]] = []
         for move in self.board.legal_moves:
             next_board = self.board.copy(stack=False); next_board.push(move)
             affected = _affected_squares_for_move(self.board, move)
@@ -234,14 +234,21 @@ class BoardTracker:
                 if prediction is None or prediction.uncertain or prediction.confidence < minimum_confidence or prediction.state != expected_state:
                     supported = False; break
             if supported:
-                candidates.append(move)
+                candidates.append((move, len(affected)))
+        # A completed castle also satisfies a hypothetical rook-only move on
+        # its two squares. Prefer the legal successor that explains the
+        # largest fully matched footprint. This retains the fallback's
+        # deliberate tolerance for unrelated recognition errors.
+        if candidates:
+            largest_footprint = max(footprint for _move, footprint in candidates)
+            candidates = [(move, footprint) for move, footprint in candidates if footprint == largest_footprint]
         if len(candidates) != 1:
             self.state = TrackingState.UNCERTAIN
             reason = "no legal move has confident affected-square evidence" if not candidates else "multiple legal moves fit the affected-square evidence"
             return TrackingUpdate(self.state, "Recognition fallback could not safely identify a move; retained the tracked position.",
                                   candidate_count=len(candidates), rejection_reason=reason,
-                                  candidate_summaries=tuple(move.uci() for move in candidates[:12]))
-        return self.observe_visual_move(candidates[0].uci(), .70)
+                                  candidate_summaries=tuple(move.uci() for move, _footprint in candidates[:12]))
+        return self.observe_visual_move(candidates[0][0].uci(), .70)
 
     def _recovery_candidates(self, observed: str) -> tuple[list[tuple[tuple[chess.Move, ...], int]], bool]:
         """Bounded breadth-first legal sequence search, scored by placement errors."""

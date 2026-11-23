@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -260,6 +261,28 @@ def test_fresh_small_pawn_move_reaches_change_tracking_and_a_fresh_settled_frame
     assert window._should_process_monitor_image(black_image)
     assert window._visual_tracker.observe(black_image, grid, window._tracker.board).candidates[0].move_uci == "e7e6"
     window.close(); app.processEvents()
+
+
+def test_gui_processes_both_stable_castling_observations() -> None:
+    app = QApplication.instance() or QApplication([])
+    for turn, uci in (("w", "e1g1"), ("w", "e1c1"), ("b", "e8g8"), ("b", "e8c8")):
+        window = MainWindow()
+        before = chess.Board(f"r3k2r/8/8/8/8/8/8/R3K2R {turn} KQkq - 0 1")
+        after = before.copy(stack=False); after.push_uci(uci)
+        before_image, after_image = rendered_board(before), rendered_board(after)
+        grid = BoardGrid.manual(before_image)
+        window._tracker.confirm_initial(before.fen(en_passant="fen"))
+        window._visual_tracker.set_baseline(before_image, grid, "white")
+        window._monitoring_active = True
+        window._monitor_worker = SimpleNamespace(image=after_image)
+        visual = window._visual_tracker.observe(after_image, grid, window._tracker.board)
+        window._monitoring_recognized(grid, {}, visual, "test")
+        assert window._tracker.state is TrackingState.CANDIDATE
+        window._monitor_worker = SimpleNamespace(image=after_image)
+        window._monitoring_recognized(grid, {}, visual, "test")
+        assert window._tracker.state is TrackingState.MOVE_CONFIRMED
+        assert window._confirmed_fen == after.fen(en_passant="fen")
+        window.close(); app.processEvents()
 
 
 def test_manual_confirmation_cannot_desynchronize_legal_successor_turn_metadata() -> None:

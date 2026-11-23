@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 from chessvision.board_detection import BoardGrid
-from chessvision.change_tracking import ChangeFirstTracker
+from chessvision.change_tracking import ChangeFirstTracker, _affected_squares
 from chessvision.tracking import BoardTracker, TrackingState
 
 
@@ -85,3 +85,47 @@ def test_visual_tracking_is_independent_of_configured_analysis_side():
     assert tracker.board.turn is chess.BLACK
     assert tracker.observe_visual_move("e7e5", .9).state is TrackingState.CANDIDATE
     assert tracker.observe_visual_move("e7e5", .9).state is TrackingState.MOVE_CONFIRMED
+
+
+def test_visual_tracking_ranks_all_legal_castles_above_partial_moves():
+    cases = (
+        ("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "e1g1", ("e1", "f1", "g1", "h1")),
+        ("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "e1c1", ("a1", "c1", "d1", "e1")),
+        ("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1", "e8g8", ("e8", "f8", "g8", "h8")),
+        ("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1", "e8c8", ("a8", "c8", "d8", "e8")),
+    )
+    for fen, uci, squares in cases:
+        board = chess.Board(fen)
+        move = chess.Move.from_uci(uci)
+        assert move in board.legal_moves
+        assert _affected_squares(board, move) == squares
+        before = board_frame(board)
+        after = board.copy(stack=False); after.push(move)
+        visual = ChangeFirstTracker()
+        grid = BoardGrid.manual(before)
+        visual.set_baseline(before, grid, "white")
+        observation = visual.observe(board_frame(after), grid, board)
+        assert observation.changed_squares == squares
+        assert observation.decision == f"Visual evidence favors {uci}."
+        assert observation.candidates[0].move_uci == uci
+
+
+def test_all_castles_keep_two_frame_confirmation_and_metadata():
+    cases = (
+        ("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "e1g1", "O-O"),
+        ("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "e1c1", "O-O-O"),
+        ("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1", "e8g8", "O-O"),
+        ("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1", "e8c8", "O-O-O"),
+    )
+    for fen, uci, san in cases:
+        before = chess.Board(fen)
+        after = before.copy(stack=False); after.push_uci(uci)
+        image = board_frame(before); grid = BoardGrid.manual(image)
+        visual = ChangeFirstTracker(); visual.set_baseline(image, grid, "white")
+        legal = BoardTracker(); legal.confirm_initial(fen)
+        observation = visual.observe(board_frame(after), grid, legal.board)
+        assert legal.observe_visual_move(uci, observation.candidates[0].score).state is TrackingState.CANDIDATE
+        update = legal.observe_visual_move(uci, observation.candidates[0].score)
+        assert update.state is TrackingState.MOVE_CONFIRMED
+        assert update.move_san == san
+        assert legal.fen == after.fen(en_passant="fen")

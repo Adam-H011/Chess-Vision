@@ -160,3 +160,20 @@ def test_black_d5_move_commit_updates_placement_and_turn_together():
     assert tracker.board.piece_at(chess.D5) == chess.Piece(chess.PAWN, chess.BLACK)
     assert tracker.board.turn is chess.WHITE
     assert tracker.fen.split()[1] == "w"
+
+
+def test_constrained_recognition_confirms_each_castle_from_king_and_rook_squares():
+    states = {"P": "white_pawn", "N": "white_knight", "B": "white_bishop", "R": "white_rook", "Q": "white_queen", "K": "white_king",
+              "p": "black_pawn", "n": "black_knight", "b": "black_bishop", "r": "black_rook", "q": "black_queen", "k": "black_king"}
+    for turn, uci in (("w", "e1g1"), ("w", "e1c1"), ("b", "e8g8"), ("b", "e8c8")):
+        before = chess.Board(f"r3k2r/8/8/8/8/8/8/R3K2R {turn} KQkq - 0 1")
+        after = before.copy(stack=False); after.push_uci(uci)
+        predictions = {
+            chess.square_name(square): SimpleNamespace(state=states[piece.symbol()] if piece else "empty", confidence=.92, uncertain=False)
+            for square in chess.SQUARES
+            for piece in (after.piece_at(square),)
+        }
+        tracker = BoardTracker(); tracker.confirm_initial(before.fen(en_passant="fen"))
+        assert tracker.observe_constrained_predictions(predictions).state is TrackingState.CANDIDATE
+        assert tracker.observe_constrained_predictions(predictions).state is TrackingState.MOVE_CONFIRMED
+        assert tracker.fen == after.fen(en_passant="fen")

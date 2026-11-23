@@ -112,11 +112,15 @@ class ChangeFirstTracker:
                 detail = "No usable piece features were found; visual comparison is insufficient. Re-select the board or save diagnostics."
             return ChangeObservation(scores, changed, (), detail, baseline_feature_pixels=baseline_pixels, current_feature_pixels=current_pixels)
         candidates: list[VisualCandidate] = []
-        all_squares = set(scores)
+        changed_set = set(changed)
         for move in board.legal_moves:
             affected = set(_affected_squares(board, move))
             expected = float(np.mean([scores[square] for square in affected]))
-            unexpected_squares = all_squares - affected
+            # Compare a candidate with the squares that contain move-sized
+            # evidence. Averaging over the other 60+ quiet squares diluted
+            # the penalty for a candidate that explained only half of a
+            # castling move, making it appear almost tied with castling.
+            unexpected_squares = changed_set - affected
             unexpected = float(np.mean([scores[square] for square in unexpected_squares])) if unexpected_squares else 0.0
             # Reward change where the move predicts it and penalize widespread
             # visual disturbance such as a drag animation or bad crop.
