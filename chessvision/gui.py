@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import logging
+import time
 from pathlib import Path
 import chess
 
@@ -19,6 +20,7 @@ from .fen_builder import FenBuildError, FenMetadata, build_fen, validate_fen
 from .browser_bridge import BrowserBridge
 from .position import AnalysisMode, Position, Source
 from .tracking import BoardTracker, TrackingState
+from .change_tracking import ChangeFirstTracker, ChangeObservation
 from .engine import ChessAnalyzer, EngineAnalysisError, StockfishNotFoundError
 from .recognition_diagnostics import export_debug_report
 from .piece_recognition import (
@@ -82,7 +84,12 @@ class RecognitionWorker(QtCore.QThread):
 
 class MonitoringWorker(RecognitionWorker):
     """Same proven recognizer, run off the UI thread for one captured frame."""
-    completed_monitoring = QtCore.Signal(object, object, str)
+    completed_monitoring = QtCore.Signal(object, object, object, str)
+
+    def __init__(self, image: np.ndarray, orientation: str, template_directory: str,
+                 visual_tracker: ChangeFirstTracker | None = None, board_fen: str | None = None) -> None:
+        super().__init__(image, orientation, template_directory)
+        self.visual_tracker, self.board_fen = visual_tracker, board_fen
 
     def run(self) -> None:
         try:
@@ -92,11 +99,21 @@ class MonitoringWorker(RecognitionWorker):
             except BoardDetectionError:
                 grid = BoardGrid.manual(self.image)
                 diagnostic = "Used centered manual 8×8 grid fallback."
-            selection = select_recognizer(self.image, grid, self.template_directory or None)
-            predictions = recognize_board(self.image, grid, selection.recognizer, self.orientation)
-            profile = selection.profile_name or "generated fallback / no matching profile"
-            diagnostic += f" Monitoring profile: {profile}; orientation: {self.orientation}."
-            self.completed_monitoring.emit(grid, predictions, diagnostic)
+            visual = None
+            if self.visual_tracker is not None and self.visual_tracker.ready and self.board_fen:
+                visual = self.visual_tracker.observe(self.image, grid, chess.Board(self.board_fen))
+            # When change evidence clearly identifies a legal move, do not
+            # independently reclassify all 64 pieces. Recognition remains the
+            # fallback for initialization, ambiguity and recovery diagnostics.
+            if visual is not None and visual.candidates and visual.decision.startswith("Visual evidence favors"):
+                predictions = {}
+                diagnostic += " Change-first inference used; full-board recognition skipped."
+            else:
+                selection = select_recognizer(self.image, grid, self.template_directory or None)
+                predictions = recognize_board(self.image, grid, selection.recognizer, self.orientation)
+                profile = selection.profile_name or "generated fallback / no matching profile"
+                diagnostic += f" Monitoring profile: {profile}; orientation: {self.orientation}."
+            self.completed_monitoring.emit(grid, predictions, visual, diagnostic)
         except (BoardDetectionError, TemplateError, ValueError) as exc:
             self.failed.emit(str(exc))
 
@@ -264,6 +281,21 @@ class PreviewWidget(QtWidgets.QLabel):
             painter.drawRect(self._selection)
 
 
+class BoardSelectionDialog(QtWidgets.QDialog):
+    """Temporary full-frame chooser; the main window never shows desktop frames."""
+    def __init__(self, owner: "MainWindow") -> None:
+        super().__init__(owner)
+        self.setWindowTitle("Select Chessboard")
+        self.resize(900, 650)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Choose screen sharing if needed, then drag tightly around the chessboard."))
+        layout.addWidget(owner.preview, 1)
+        controls = QtWidgets.QHBoxLayout()
+        controls.addWidget(owner.start_button); controls.addWidget(owner.stop_button)
+        layout.addLayout(controls)
+        owner.preview.region_selected.connect(self.accept)
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -298,11 +330,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.last_import_status = QtWidgets.QLabel("Last successful import: never")
         self.position_status = QtWidgets.QLabel("Position: incomplete — import or confirm a complete FEN.")
         self.engine_status = QtWidgets.QLabel("Engine: blocked — no valid confirmed position.")
+        self.recommendation_status = QtWidgets.QLabel("Suggestion: waiting for a confirmed position.")
+        self.recommendation_status.setWordWrap(True)
+        self.player_color = QtWidgets.QComboBox()
+        self.player_color.addItem("My side: White", chess.WHITE)
+        self.player_color.addItem("My side: Black", chess.BLACK)
+        self.primary_action = QtWidgets.QPushButton("Select Chessboard")
+        self.primary_action.setDefault(True)
+        self.primary_action.setMinimumHeight(38)
+        self.primary_hint = QtWidgets.QLabel("Start screen capture, then drag over the chessboard.")
+        self.primary_hint.setWordWrap(True)
         self.confirm_initial_button = QtWidgets.QPushButton("Confirm Initial Position")
         self.monitor_start_button = QtWidgets.QPushButton("Start Monitoring")
         self.monitor_stop_button = QtWidgets.QPushButton("Stop Monitoring")
         self.monitor_stop_button.setEnabled(False)
         self.resync_button = QtWidgets.QPushButton("Manual Resync")
+        self.retry_recognition_button = QtWidgets.QPushButton("Retry Recognition")
+        self.confirm_recovery_button = QtWidgets.QPushButton("Confirm Proposed Sequence")
+        self.confirm_recovery_button.setEnabled(False)
         self.undo_move_button = QtWidgets.QPushButton("Undo Last Move")
         self.monitor_interval = QtWidgets.QSpinBox(); self.monitor_interval.setRange(250, 10000); self.monitor_interval.setSingleStep(250); self.monitor_interval.setValue(1000); self.monitor_interval.setSuffix(" ms")
         self.tracking_status = QtWidgets.QLabel("Tracking: ready — confirm an initial position to enable monitoring.")
@@ -347,94 +392,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self.diagnostics.setMaximumBlockCount(200)
         self.diagnostics.setMaximumHeight(110)
 
-        left = QtWidgets.QWidget()
-        left_layout = QtWidgets.QVBoxLayout(left)
-        left_layout.addWidget(QtWidgets.QLabel("Capture"))
-        left_layout.addWidget(self.preview, 1)
-        capture_controls = QtWidgets.QHBoxLayout()
-        capture_controls.addWidget(self.start_button)
-        capture_controls.addWidget(self.stop_button)
-        left_layout.addLayout(capture_controls)
-        left_layout.addWidget(self.select_button)
-        left_layout.addWidget(self.board_preview)
-
-        center = QtWidgets.QWidget()
-        center_layout = QtWidgets.QVBoxLayout(center)
-        center_layout.addWidget(QtWidgets.QLabel("Recognized Position"))
-        center_layout.addWidget(self.board_canvas, 1)
-        center_layout.addWidget(self.undo_button)
-        center_layout.addWidget(self.editor)
-
-        right_content = QtWidgets.QWidget()
-        right_layout = QtWidgets.QVBoxLayout(right_content)
-        right_layout.addWidget(QtWidgets.QLabel("Recognition"))
-        source_form = QtWidgets.QFormLayout()
-        source_form.addRow("Source", self.source_selector)
-        source_form.addRow("Analysis mode", self.mode_selector)
-        right_layout.addLayout(source_form)
-        browser_controls = QtWidgets.QHBoxLayout()
-        browser_controls.addWidget(self.browser_start_button); browser_controls.addWidget(self.browser_import_button)
-        right_layout.addLayout(browser_controls); right_layout.addWidget(self.browser_status)
-        right_layout.addWidget(self.text_import_button)
-        right_layout.addWidget(self.position_source_status)
-        right_layout.addWidget(self.last_import_status)
-        right_layout.addWidget(self.position_status)
-        tracking_controls = QtWidgets.QGridLayout()
-        tracking_controls.addWidget(self.confirm_initial_button, 0, 0)
-        tracking_controls.addWidget(self.monitor_start_button, 0, 1)
-        tracking_controls.addWidget(self.monitor_stop_button, 1, 0)
-        tracking_controls.addWidget(self.resync_button, 1, 1)
-        tracking_controls.addWidget(QtWidgets.QLabel("Interval"), 2, 0)
-        tracking_controls.addWidget(self.monitor_interval, 2, 1)
-        tracking_controls.addWidget(self.undo_move_button, 3, 0, 1, 2)
-        right_layout.addLayout(tracking_controls)
-        right_layout.addWidget(self.tracking_status); right_layout.addWidget(self.last_move_status); right_layout.addWidget(self.move_history)
-        right_layout.addWidget(self.recognition_status)
-        right_layout.addWidget(self.analyze_button)
-        right_layout.addWidget(QtWidgets.QLabel("Engine"))
-        analysis_controls = QtWidgets.QHBoxLayout()
-        analysis_controls.addWidget(QtWidgets.QLabel("Depth"))
-        analysis_controls.addWidget(self.depth)
-        analysis_controls.addWidget(self.analyze_position_button)
-        right_layout.addLayout(analysis_controls)
-        right_layout.addWidget(self.engine_status)
-        right_layout.addWidget(self.engine_output, 1)
-        advanced = QtWidgets.QToolBox()
-        metadata_widget = QtWidgets.QWidget()
-        metadata_layout = QtWidgets.QVBoxLayout(metadata_widget)
-        metadata_layout.addLayout(form)
-        metadata_layout.addWidget(self.fen_display)
-        metadata_layout.addWidget(self.confirm_button)
-        advanced.addItem(metadata_widget, "Position metadata")
-        template_widget = QtWidgets.QWidget()
-        template_layout = QtWidgets.QVBoxLayout(template_widget)
-        template_layout.addWidget(QtWidgets.QLabel("Optional local templates"))
-        template_layout.addWidget(self.template_directory)
-        template_layout.addWidget(self.orientation)
-        template_layout.addWidget(self.calibrate_button)
-        advanced.addItem(template_widget, "Recognition settings")
-        debug_widget = QtWidgets.QWidget()
-        debug_layout = QtWidgets.QVBoxLayout(debug_widget)
-        debug_layout.addWidget(self.diagnostics)
-        debug_layout.addWidget(self.export_button)
-        advanced.addItem(debug_widget, "Diagnostics")
-        right_layout.addWidget(advanced)
-        right_scroll = QtWidgets.QScrollArea()
-        right_scroll.setWidgetResizable(True)
-        right_scroll.setWidget(right_content)
-        splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
-        splitter.addWidget(left)
-        splitter.addWidget(center)
-        splitter.addWidget(right_scroll)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 3)
-        splitter.setStretchFactor(2, 2)
-        splitter.setSizes([330, 360, 300])
-        container = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(container)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.addWidget(splitter)
-        self.setCentralWidget(container)
+        self.view_selector = QtWidgets.QComboBox()
+        self.view_selector.addItems(("Recognized board", "Selected board crop"))
+        self.board_views = QtWidgets.QStackedWidget()
+        self.board_views.addWidget(self.board_canvas)
+        self.board_views.addWidget(self.board_preview)
+        self.board_preview.setMinimumSize(500, 500)
+        self.board_preview.setMaximumHeight(16777215)
+        self.settings_button = QtWidgets.QPushButton("Settings…")
+        self.change_selection_button = QtWidgets.QPushButton("Change Board Selection")
+        left = QtWidgets.QWidget(); left_layout = QtWidgets.QVBoxLayout(left)
+        left_layout.addWidget(self.view_selector)
+        left_layout.addWidget(self.board_views, 1)
+        left_layout.addWidget(self.change_selection_button)
+        right = QtWidgets.QWidget(); right_layout = QtWidgets.QVBoxLayout(right)
+        title = QtWidgets.QLabel("ChessVision"); title.setStyleSheet("font-size: 22px; font-weight: 600;")
+        right_layout.addWidget(title); right_layout.addWidget(self.primary_action); right_layout.addWidget(self.primary_hint)
+        right_layout.addWidget(self.position_status); right_layout.addWidget(self.recognition_status)
+        right_layout.addWidget(self.tracking_status); right_layout.addWidget(self.last_move_status); right_layout.addWidget(self.recommendation_status)
+        right_layout.addWidget(QtWidgets.QLabel("Move history")); right_layout.addWidget(self.move_history)
+        right_layout.addStretch(1); right_layout.addWidget(self.settings_button)
+        splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal); splitter.addWidget(left); splitter.addWidget(right)
+        splitter.setStretchFactor(0, 3); splitter.setStretchFactor(1, 2); splitter.setSizes([620, 360])
+        self.setCentralWidget(splitter)
         self.setMinimumSize(750, 500)
         self.resize(1050, 700)
         self.statusBar().showMessage("Ready. GNOME will ask before sharing.")
@@ -443,6 +423,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.start_button.clicked.connect(self._start_capture)
         self.stop_button.clicked.connect(self._stop_capture)
         self.select_button.clicked.connect(lambda: self.statusBar().showMessage("Drag over the board in the capture preview."))
+        self.change_selection_button.clicked.connect(self._open_board_selection)
+        self.view_selector.currentIndexChanged.connect(self.board_views.setCurrentIndex)
+        self.settings_button.clicked.connect(self._open_settings)
         self.analyze_button.clicked.connect(self._analyze_board_image)
         self.calibrate_button.clicked.connect(self._calibrate_piece_recognition)
         self.confirm_button.clicked.connect(self._confirm_position)
@@ -451,12 +434,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.browser_start_button.clicked.connect(self._start_browser_import)
         self.browser_import_button.clicked.connect(self._import_browser_position)
         self.text_import_button.clicked.connect(self._import_fen_pgn)
+        self.primary_action.clicked.connect(self._run_primary_action)
         self.confirm_initial_button.clicked.connect(self._confirm_tracking_initial)
         self.monitor_start_button.clicked.connect(self._start_monitoring)
         self.monitor_stop_button.clicked.connect(self._stop_monitoring)
         self.resync_button.clicked.connect(self._manual_resync)
+        self.retry_recognition_button.clicked.connect(self._retry_monitoring_recognition)
+        self.confirm_recovery_button.clicked.connect(self._confirm_recovery_sequence)
         self.undo_move_button.clicked.connect(self._undo_tracked_move)
         self.mode_selector.currentIndexChanged.connect(self._update_engine_policy)
+        self.player_color.currentIndexChanged.connect(self._maybe_auto_analyze)
         self.preview.region_selected.connect(self._select_region)
         self.editor.cellClicked.connect(self._show_square_crop)
         self.undo_button.clicked.connect(self._undo_piece_edit)
@@ -472,10 +459,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._recognition_uncertain = False
         self._engine_worker: EngineWorker | None = None
         self._tracker = BoardTracker()
+        self._visual_tracker = ChangeFirstTracker()
         self._monitor_region: CaptureRegion | None = None
         self._monitor_last_frame: np.ndarray | None = None
         self._monitor_frame_dimensions: tuple[int, int] | None = None
+        self._monitor_frame_info = None
+        self._monitor_last_sequence: int | None = None
         self._last_monitor_predictions: dict[str, PiecePrediction] | None = None
+        self._last_tracking_report: dict | None = None
         self._tracking_orientation: str | None = None
         self._monitor_timer = QtCore.QTimer(self)
         self._monitor_timer.timeout.connect(self._monitor_tick)
@@ -484,10 +475,49 @@ class MainWindow(QtWidgets.QMainWindow):
         self._active_position: Position | None = None
         self._undo_stack: list[tuple[str, PiecePrediction | None]] = []
         self._recognition_backend = "not run"
+        self._settings_dialog: QtWidgets.QDialog | None = None
         self._populate_editor()
         for label in (self.position_status, self.engine_status, self.tracking_status, self.last_move_status):
             label.setWordWrap(True)
         self._refresh_state_controls()
+
+    def _open_board_selection(self) -> None:
+        dialog = BoardSelectionDialog(self)
+        self._selection_dialog = dialog
+        dialog.exec()
+        # The full-frame preview is intentionally transient. Reparent it so a
+        # later selection dialog can reuse it without ever showing it in main.
+        self.preview.setParent(self)
+        dialog.deleteLater()
+
+    def _open_settings(self) -> None:
+        if self._settings_dialog is not None:
+            self._settings_dialog.show(); self._settings_dialog.raise_(); return
+        dialog = QtWidgets.QDialog(self); dialog.setWindowTitle("ChessVision Settings"); dialog.resize(620, 620)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addWidget(QtWidgets.QLabel("Advanced options — normal tracking does not require these."))
+        tabs = QtWidgets.QTabWidget(); layout.addWidget(tabs, 1)
+        position = QtWidgets.QWidget(); position_layout = QtWidgets.QVBoxLayout(position)
+        position_layout.addWidget(self.text_import_button); position_layout.addWidget(self.fen_display)
+        for field in self.metadata.values(): position_layout.addWidget(field)
+        position_layout.addWidget(self.confirm_button); position_layout.addWidget(self.resync_button); position_layout.addWidget(self.editor, 1); position_layout.addWidget(self.undo_button)
+        tabs.addTab(position, "Position")
+        recognition = QtWidgets.QWidget(); recognition_layout = QtWidgets.QVBoxLayout(recognition)
+        recognition_layout.addWidget(self.orientation); recognition_layout.addWidget(self.template_directory); recognition_layout.addWidget(self.calibrate_button); recognition_layout.addWidget(self.analyze_button)
+        recognition_layout.addWidget(self.monitor_interval); recognition_layout.addWidget(self.retry_recognition_button); recognition_layout.addWidget(self.confirm_recovery_button); recognition_layout.addWidget(self.undo_move_button)
+        tabs.addTab(recognition, "Recognition")
+        analysis = QtWidgets.QWidget(); analysis_layout = QtWidgets.QVBoxLayout(analysis)
+        analysis_layout.addWidget(self.mode_selector); analysis_layout.addWidget(self.player_color); analysis_layout.addWidget(self.depth); analysis_layout.addWidget(self.analyze_position_button); analysis_layout.addWidget(self.engine_status); analysis_layout.addWidget(self.engine_output, 1)
+        tabs.addTab(analysis, "Analysis")
+        browser = QtWidgets.QWidget(); browser_layout = QtWidgets.QVBoxLayout(browser)
+        browser_layout.addWidget(self.source_selector); browser_layout.addWidget(self.browser_start_button); browser_layout.addWidget(self.browser_import_button); browser_layout.addWidget(self.browser_status); browser_layout.addStretch(1)
+        tabs.addTab(browser, "Browser")
+        diagnostics = QtWidgets.QWidget(); diagnostics_layout = QtWidgets.QVBoxLayout(diagnostics)
+        diagnostics_layout.addWidget(self.diagnostics, 1); diagnostics_layout.addWidget(self.export_button)
+        tabs.addTab(diagnostics, "Diagnostics")
+        close = QtWidgets.QPushButton("Close"); close.clicked.connect(dialog.close); layout.addWidget(close)
+        dialog.finished.connect(lambda *_: setattr(self, "_settings_dialog", None))
+        self._settings_dialog = dialog; dialog.show()
 
     def _mark_import(self, source: str) -> None:
         self.position_source_status.setText(f"Position source: {source}")
@@ -500,10 +530,36 @@ class MainWindow(QtWidgets.QMainWindow):
         self.position_status.setText(f"Position: {'valid' if valid else 'incomplete / invalid'} — {detail}")
         self._refresh_state_controls()
 
+    def _selected_mode(self) -> AnalysisMode:
+        value = self.mode_selector.currentData()
+        return value if isinstance(value, AnalysisMode) else AnalysisMode(str(value))
+
+    def _may_recommend_now(self) -> bool:
+        if not self._position_valid or not self._confirmed_fen or not self._selected_mode().engine_permitted:
+            return False
+        try:
+            return chess.Board(self._confirmed_fen).turn == bool(self.player_color.currentData())
+        except ValueError:
+            return False
+
+    def _maybe_auto_analyze(self, *_args) -> None:
+        """Refresh the local recommendation only for a permitted user turn."""
+        if not self._may_recommend_now():
+            if self._position_valid and self._confirmed_fen:
+                self.recommendation_status.setText("Suggestion: waiting for the selected side to move.")
+            return
+        if self._engine_worker is not None and self._engine_worker.isRunning():
+            self._engine_worker.cancel()
+        self.recommendation_status.setText("Suggestion: calculating with local Stockfish…")
+        self._engine_worker = EngineWorker(self._confirmed_fen, self.depth.value())
+        self._engine_worker.completed.connect(self._engine_completed)
+        self._engine_worker.failed.connect(self._engine_failed)
+        self._engine_worker.start()
+
     def _refresh_state_controls(self) -> None:
         """Derive every button from its own prerequisite; do not reuse stale UI state."""
-        mode = self.mode_selector.currentData()
-        fair_play_allows = isinstance(mode, AnalysisMode) and mode.engine_permitted
+        mode = self._selected_mode()
+        fair_play_allows = mode.engine_permitted
         engine_allowed = self._position_valid and bool(self._confirmed_fen) and fair_play_allows
         worker_running = self._engine_worker is not None and self._engine_worker.isRunning()
         self.analyze_position_button.setEnabled(engine_allowed and not worker_running)
@@ -517,6 +573,46 @@ class MainWindow(QtWidgets.QMainWindow):
         ready_to_monitor = self._tracker.board is not None and self.capture.is_running and self._monitor_region is not None
         self.monitor_start_button.setEnabled(ready_to_monitor and not self._monitoring_active)
         self.monitor_stop_button.setEnabled(self._monitoring_active)
+        self.confirm_recovery_button.setEnabled(self._tracker.can_confirm_proposed_sequence)
+        if self._monitoring_active:
+            self.primary_action.setText("Stop Tracking")
+            self.primary_hint.setText("Tracking the selected board. Stop when you are finished.")
+        elif self._tracker.can_confirm_proposed_sequence:
+            self.primary_action.setText("Confirm Proposed Sequence")
+            self.primary_hint.setText("Review the proposed legal moves, then confirm them or use Manual Resync.")
+        elif self._tracker.board is not None and ready_to_monitor:
+            self.primary_action.setText("Start Tracking")
+            self.primary_hint.setText("The position and board capture are ready.")
+        elif self._position_valid:
+            if self.capture.is_running and self._monitor_region is not None:
+                self.primary_action.setText("Start Tracking")
+                self.primary_hint.setText("The recognized position looks ready. Start tracking when it looks correct.")
+            else:
+                self.primary_action.setText("Review Position")
+                self.primary_hint.setText("Select a board capture to begin tracking this position.")
+        elif self._predictions:
+            self.primary_action.setText("Confirm Position")
+            self.primary_hint.setText("Review highlighted squares, then confirm the board position.")
+        elif self._board_image is not None:
+            self.primary_action.setText("Recognize Position")
+            self.primary_hint.setText("Identify the pieces in the selected board.")
+        else:
+            self.primary_action.setText("Select Chessboard")
+            self.primary_hint.setText("Start screen capture, then drag over the chessboard.")
+
+    def _run_primary_action(self) -> None:
+        action = self.primary_action.text()
+        if action == "Stop Tracking": self._stop_monitoring()
+        elif action == "Confirm Proposed Sequence": self._confirm_recovery_sequence()
+        elif action == "Start Tracking":
+            if self._tracker.board is None: self._confirm_tracking_initial()
+            self._start_monitoring()
+        elif action == "Review Position": self._open_board_selection()
+        elif action == "Confirm Initial Position": self._confirm_tracking_initial()
+        elif action == "Confirm Position": self._confirm_position()
+        elif action == "Recognize Position": self._analyze_board_image()
+        else:
+            self._open_board_selection()
 
     def _confirm_tracking_initial(self) -> None:
         """Make the already reviewed FEN authoritative; monitoring never guesses it."""
@@ -530,8 +626,26 @@ class MainWindow(QtWidgets.QMainWindow):
         except ValueError as exc:
             self.tracking_status.setText(f"Tracking: {exc}")
             return
+        # A newly confirmed authoritative FEN starts a new visual epoch. Never
+        # compare it with a baseline from a prior capture or imported position.
+        self._visual_tracker = ChangeFirstTracker()
         self.tracking_status.setText("Tracking: " + update.message)
         self._tracking_orientation = self.orientation.currentData()
+        # Do not use a screen image as a baseline when recognition already
+        # provides confident affected-square evidence for a successor. This
+        # happens if a bot moved between FEN confirmation and Start Tracking:
+        # using that later frame as baseline would make all visual scores zero.
+        baseline_is_successor = False
+        if self._predictions and self._recognition_backend != "not run":
+            probe = self._tracker.observe_constrained_predictions(self._predictions)
+            baseline_is_successor = probe.state is TrackingState.CANDIDATE
+        if baseline_is_successor:
+            self.tracking_status.setText("Tracking: a possible legal move is already visible; waiting for one stable confirmation before setting a new baseline.")
+        elif self._board_image is not None and self._grid is not None:
+            self._visual_tracker.set_baseline(self._board_image, self._grid, self._tracking_orientation)
+            self.tracking_status.setText("Tracking: initial position confirmed; visual baseline ready.")
+        else:
+            self.tracking_status.setText("Tracking: initial position confirmed; select/recognize a board to create a visual baseline.")
         self.last_move_status.setText("Last move: —")
         self.move_history.clear()
         self._refresh_state_controls()
@@ -547,15 +661,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tracking_status.setText("Tracking: start screen capture first; the portal is not reopened per frame.")
             return
         self._monitor_last_frame = None
+        self._monitor_last_sequence = None
         self._monitoring_active = True
         self._monitor_timer.start(self.monitor_interval.value())
         self._refresh_state_controls()
         self.tracking_status.setText("Tracking: monitoring stable board observations.")
+        self._maybe_auto_analyze()
 
     def _stop_monitoring(self) -> None:
         self._monitor_timer.stop()
         self._monitoring_active = False
         self._monitor_last_frame = None
+        self._monitor_last_sequence = None
         if self._tracker.board:
             self._tracker.stop()
         self.tracking_status.setText("Tracking: stopped.")
@@ -570,21 +687,32 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             # Take one frame and crop it exactly once. This avoids a mismatch
             # between a logged frame and a later ``selected_region`` frame.
-            frame = self.capture.latest_frame()
-            if frame is None:
+            frame_and_info = self.capture.latest_frame_with_info()
+            if frame_and_info is None:
                 raise CaptureError("No captured frame is available yet.")
+            frame, info = frame_and_info
             self._monitor_frame_dimensions = (frame.shape[1], frame.shape[0])
+            self._monitor_frame_info = info
+            if self._monitor_last_sequence == info.sequence_id:
+                # Polling the cache again is not a second observation. Only a
+                # newly delivered PipeWire frame can satisfy move stability.
+                return
             image = crop_frame(frame, self._monitor_region)
         except (CaptureError, InvalidRegionError) as exc:
             self._tracking_capture_error(str(exc)); return
         # Skip visually identical frames before invoking OpenCV/template matching.
         if self._monitor_last_frame is not None and image.shape == self._monitor_last_frame.shape:
-            if float(np.mean(np.abs(image.astype(np.int16) - self._monitor_last_frame.astype(np.int16)))) < 1.0:
+            identical = float(np.mean(np.abs(image.astype(np.int16) - self._monitor_last_frame.astype(np.int16)))) < 1.0
+            # Normally skip a settled frame to save CPU. Once a legal visual
+            # candidate exists, however, that same settled frame is precisely
+            # the second observation required to confirm either colour's move.
+            if identical and not self._tracker.needs_stability_observation:
                 return
         self._monitor_last_frame = image.copy()
+        self._monitor_last_sequence = self._monitor_frame_info.sequence_id
         orientation = self._tracking_orientation or self.orientation.currentData()
         LOGGER.debug("Monitoring frame=%sx%s crop=x=%s y=%s w=%s h=%s orientation=%s", *self._monitor_frame_dimensions, self._monitor_region.x, self._monitor_region.y, self._monitor_region.width, self._monitor_region.height, orientation)
-        self._monitor_worker = MonitoringWorker(image, orientation, self.template_directory.text().strip())
+        self._monitor_worker = MonitoringWorker(image, orientation, self.template_directory.text().strip(), self._visual_tracker, self._tracker.fen)
         self._monitor_worker.completed_monitoring.connect(self._monitoring_recognized)
         self._monitor_worker.failed.connect(self._monitoring_failed)
         self._monitor_worker.start()
@@ -593,18 +721,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self._stop_monitoring()
         self.tracking_status.setText("Tracking: " + self._tracker.disconnected(f"Capture disconnected: {detail}").message)
 
-    def _monitoring_recognized(self, grid: BoardGrid, predictions: dict, diagnostic: str) -> None:
+    def _monitoring_recognized(self, grid: BoardGrid, predictions: dict, visual: ChangeObservation | None, diagnostic: str) -> None:
         if not self._monitoring_active:
             return
         self._grid, self._board_image = grid, self._monitor_worker.image.copy() if self._monitor_worker else None
-        self._last_monitor_predictions = predictions
-        update = self._tracker.observe(predictions)
+        self._last_monitor_predictions = predictions or None
+        authoritative_fen = self._tracker.fen
+        if visual is not None and visual.candidates and visual.decision.startswith("Visual evidence favors"):
+            update = self._tracker.observe_visual_move(visual.candidates[0].move_uci, visual.candidates[0].score)
+        elif predictions:
+            # Visual evidence normally leads. If it is unavailable (for
+            # example a low-contrast mask), evaluate only squares a legal move
+            # would affect; unrelated pawn/rook errors must not veto g8→f6.
+            update = self._tracker.observe_constrained_predictions(predictions)
+        else:
+            update = self._tracker.observe_placement(self._tracker.board.board_fen() if self._tracker.board else "8/8/8/8/8/8/8/8", uncertain=True)
         self.tracking_status.setText(f"Tracking: {update.state.value}: {update.message}")
-        self._show_tracking_diagnostics(predictions, diagnostic, update)
+        self._show_tracking_diagnostics(predictions, diagnostic, update, authoritative_fen, visual)
+        self._refresh_state_controls()
         if update.state is TrackingState.MOVE_CONFIRMED:
-            self._predictions = predictions
-            self._populate_editor(); self.board_canvas.set_position(predictions, self.orientation.currentData())
             self._confirmed_fen = self._tracker.fen
+            # Rendering follows the committed python-chess board, never the
+            # raw recognition dictionary. This keeps placement, turn and FEN
+            # sourced from one authoritative move commit.
+            self._load_authoritative_board()
             if self._confirmed_fen:
                 parts = self._confirmed_fen.split()
                 for key, value in zip(("turn", "castling", "ep", "halfmove", "fullmove"), parts[1:]): self.metadata[key].setText(value)
@@ -614,18 +754,43 @@ class MainWindow(QtWidgets.QMainWindow):
             if self._engine_worker is not None and self._engine_worker.isRunning():
                 self._engine_worker.cancel()
             self._set_position_state(True, "tracked legal move confirmed", self._confirmed_fen)
+            if self._board_image is not None:
+                self._visual_tracker.accept_current(self._board_image, grid)
+            self._maybe_auto_analyze()
 
     def _monitoring_failed(self, detail: str) -> None:
         self.tracking_status.setText(f"Tracking: recognition failed; retained current position. {detail}")
 
-    def _show_tracking_diagnostics(self, predictions: dict, diagnostic: str, update) -> None:
+    def _retry_monitoring_recognition(self) -> None:
+        if not self._monitoring_active:
+            self.tracking_status.setText("Tracking: start monitoring before retrying recognition.")
+            return
+        self._monitor_last_frame = None
+        self._monitor_last_sequence = None
+        self._monitor_tick()
+
+    def _confirm_recovery_sequence(self) -> None:
+        update = self._tracker.confirm_proposed_sequence()
+        self.tracking_status.setText("Tracking: " + update.message)
+        if update.state is TrackingState.MOVE_CONFIRMED:
+            self._confirmed_fen = self._tracker.fen
+            self._load_authoritative_board()
+            self.move_history.setPlainText(" ".join(self._tracker.history))
+            self.last_move_status.setText(f"Last move: {update.move_san} ({update.move_uci})")
+            self._set_position_state(True, "user-confirmed legal recovery sequence", self._confirmed_fen)
+        self._refresh_state_controls()
+
+    def _show_tracking_diagnostics(self, predictions: dict, diagnostic: str, update, authoritative_fen: str | None, visual: ChangeObservation | None = None) -> None:
         """Keep actionable, local evidence for one user-triggered debug export."""
         uncertain = sum(item.uncertain for item in predictions.values())
         region = self._monitor_region
         frame = self._monitor_frame_dimensions
+        info = self._monitor_frame_info
+        age_ms = (time.monotonic_ns() - info.received_monotonic_ns) / 1_000_000 if info else None
         rows = [
             "Monitoring observation",
             f"Capture frame: {frame[0]}×{frame[1]}" if frame else "Capture frame: unavailable",
+            f"Frame sequence: {info.sequence_id}; freshness: {age_ms:.1f} ms" if info and age_ms is not None else "Frame sequence: unavailable",
             f"Crop: x={region.x}, y={region.y}, w={region.width}, h={region.height}" if region else "Crop: unavailable",
             "Crop application: once from the captured frame",
             f"Orientation: {self._tracking_orientation or self.orientation.currentData()} (locked when initial position was confirmed)",
@@ -633,12 +798,49 @@ class MainWindow(QtWidgets.QMainWindow):
             f"Uncertain squares: {uncertain}; minimum confidence: {update.confidence if update.confidence is not None else 'n/a'}",
             f"Recognized placement: {update.recognized_placement or 'n/a'}",
             f"Authoritative placement: {update.authoritative_placement or 'n/a'}",
+            f"Authoritative FEN before observation: {authoritative_fen or 'n/a'}",
             f"Differing squares: {update.differing_squares}; legal candidates: {update.candidate_count}",
+            f"Differing square names: {', '.join(update.differing_square_names) or 'none'}",
             f"Stability: {update.stable_count}/{self._tracker.stable_observations}; rejection/decision: {update.message}",
+            f"Candidate scores: {'; '.join(update.candidate_summaries) or 'none'}",
+            f"Proposed sequence: {' '.join(update.proposed_sequence) or 'none'}",
+            f"Visual changes: {', '.join(visual.changed_squares) if visual else 'not available'}",
+            f"Visual decision: {visual.decision if visual else 'full-board recognition fallback'}",
+            f"Visual baseline/current feature pixels: {visual.baseline_feature_pixels}/{visual.current_feature_pixels}" if visual else "Visual features: unavailable",
         ]
         if update.differing_squares >= 20:
             rows.append("Likely cause: crop or board-orientation mismatch; reselect the board and reconfirm orientation.")
         self.diagnostics.setPlainText("\n".join(rows))
+        self._last_tracking_report = {
+            "authoritative_fen_before_observation": authoritative_fen,
+            "recognized_placement": update.recognized_placement,
+            "authoritative_placement": update.authoritative_placement,
+            "tracking_state": update.state.value,
+            "decision": update.message,
+            "rejection_reason": update.rejection_reason,
+            "differing_squares": list(update.differing_square_names),
+            "difference_count": update.differing_squares,
+            "recognition_confidence": update.confidence,
+            "uncertain_recognition": update.uncertain_recognition,
+            "candidate_scores": list(update.candidate_summaries),
+            "proposed_sequence": list(update.proposed_sequence),
+            "stable_observations": update.stable_count,
+            "required_stable_observations": self._tracker.stable_observations,
+            "capture_dimensions": list(frame) if frame else None,
+            "capture_frame_sequence": info.sequence_id if info else None,
+            "capture_frame_received_monotonic_ns": info.received_monotonic_ns if info else None,
+            "capture_frame_received_wall_time_ns": info.received_wall_time_ns if info else None,
+            "capture_frame_age_ms": age_ms,
+            "crop": {"x": region.x, "y": region.y, "width": region.width, "height": region.height} if region else None,
+            "orientation": self._tracking_orientation or self.orientation.currentData(),
+            "recognition_profile": diagnostic,
+            "visual_change_scores": visual.change_scores if visual else None,
+            "visual_changed_squares": list(visual.changed_squares) if visual else [],
+            "visual_candidates": [candidate.__dict__ for candidate in visual.candidates] if visual else [],
+            "visual_decision": visual.decision if visual else None,
+            "visual_baseline_feature_pixels": visual.baseline_feature_pixels if visual else None,
+            "visual_current_feature_pixels": visual.current_feature_pixels if visual else None,
+        }
         LOGGER.debug("%s", " | ".join(rows))
 
     def _manual_resync(self) -> None:
@@ -734,8 +936,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_engine_policy(self) -> None:
         self._refresh_state_controls()
-        mode = self.mode_selector.currentData()
-        if not (isinstance(mode, AnalysisMode) and mode.engine_permitted):
+        mode = self._selected_mode()
+        if not mode.engine_permitted:
             self.engine_output.setPlainText("Engine recommendations are disabled for live competitive or uncertain/display-only mode. Board display/import remains available.")
 
     def _start_capture(self) -> None:
@@ -783,20 +985,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self._board_image = image
         self._last_monitor_predictions = None
         self._monitor_region = region
+        self.board_views.setCurrentIndex(1); self.view_selector.setCurrentIndex(1)
         self._refresh_state_controls()
         qimage = QtGui.QImage(image.data, image.shape[1], image.shape[0], image.strides[0], QtGui.QImage.Format.Format_RGB888).copy()
         self.board_preview.setPixmap(QtGui.QPixmap.fromImage(qimage).scaledToHeight(180, QtCore.Qt.TransformationMode.SmoothTransformation))
         self.recognition_status.setText("Board crop selected. Choose Analyze Board Image.")
+        self._refresh_state_controls()
         self.diagnostics.setPlainText(
             f"Selected board crop: {image.shape[1]} × {image.shape[0]} RGB pixels\n"
             f"Source crop: x={region.x}, y={region.y}, w={region.width}, h={region.height}"
         )
+        QtCore.QTimer.singleShot(0, self._analyze_board_image)
 
     def _analyze_board_image(self) -> None:
         if self._board_image is None:
             self.statusBar().showMessage("Select a board-sized capture region first.")
             return
         self.analyze_button.setEnabled(False)
+        self._refresh_state_controls()
         self._recognizer = RecognitionWorker(self._board_image.copy(), self.orientation.currentData(), self.template_directory.text().strip())
         self._recognizer.completed.connect(self._recognition_complete)
         self._recognizer.failed.connect(self._recognition_failed)
@@ -831,6 +1037,18 @@ class MainWindow(QtWidgets.QMainWindow):
         rows = [f"Backend: {backend}", f"Grid: {grid.source}, {grid.size}px", f"Uncertain squares: {uncertain}"]
         rows.extend(f"{name}: {item.state} ({item.confidence:.0%}){' uncertain' if item.uncertain else ''}" for name, item in sorted(predictions.items()))
         self.diagnostics.setPlainText("\n".join(rows))
+        # A confident, exact standard position has complete known metadata;
+        # offer the beginner workflow without silently substituting pieces.
+        try:
+            standard = build_fen(predictions, FenMetadata("w", "KQkq", "-", 0, 1))
+        except FenBuildError:
+            standard = ""
+        if uncertain == 0 and standard == chess.STARTING_FEN:
+            for key, value in (("turn", "w"), ("castling", "KQkq"), ("ep", "-"), ("halfmove", "0"), ("fullmove", "1")):
+                self.metadata[key].setText(value)
+            self._set_position_state(True, "recognized standard starting position", chess.STARTING_FEN)
+            self.fen_display.setText(chess.STARTING_FEN)
+        self._refresh_state_controls()
 
     def _recognition_failed(self, message: str) -> None:
         self.analyze_button.setEnabled(True)
@@ -838,6 +1056,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(text)
         self.recognition_status.setText(text)
         self.diagnostics.setPlainText(text)
+        self._refresh_state_controls()
 
     def _export_debug_report(self) -> None:
         report_predictions = self._last_monitor_predictions or self._predictions
@@ -849,7 +1068,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         try:
             backend = self._recognition_backend_name()
-            report = export_debug_report(directory, self._board_image, self._grid, report_predictions, backend)
+            report = export_debug_report(directory, self._board_image, self._grid, report_predictions, backend, self._last_tracking_report, self._visual_tracker.baseline_image)
         except (OSError, ValueError) as exc:
             self.statusBar().showMessage(f"Debug export failed: {exc}")
             return
@@ -958,6 +1177,21 @@ class MainWindow(QtWidgets.QMainWindow):
                 int(self.metadata["fullmove"].text()) if self.metadata["fullmove"].text() else None,
             )
             fen = build_fen(self._predictions, metadata)
+            # A tracked successor must carry the successor's complete state.
+            # Rebuilding the visual placement with stale metadata (for example
+            # d7→d5 but still "b" to move) desynchronizes the board without a
+            # python-chess move commit. Preserve the authoritative board and
+            # ask the user to let tracking confirm/retry the candidate instead.
+            candidate_board = chess.Board(fen)
+            if self._tracker.board is not None:
+                for move in self._tracker.board.legal_moves:
+                    successor = self._tracker.board.copy(stack=False)
+                    successor.push(move)
+                    if successor.board_fen() == candidate_board.board_fen() and successor.turn != candidate_board.turn:
+                        raise FenBuildError(
+                            f"This board looks like {self._tracker.board.san(move)}, but side-to-move metadata is stale. "
+                            "Keep tracking active or use Retry; ChessVision kept the authoritative FEN unchanged."
+                        )
             validation = validate_fen(fen)
             self.fen_display.setText(fen)
             self.statusBar().showMessage(validation.message)
@@ -978,7 +1212,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self._position_valid or not self._confirmed_fen:
             self.statusBar().showMessage("Engine analysis needs a complete valid confirmed position.")
             return
-        if not self.mode_selector.currentData().engine_permitted:
+        if not self._selected_mode().engine_permitted:
             self.statusBar().showMessage("Engine assistance is disabled in this analysis mode.")
             return
         if not self._confirmed_fen:
@@ -998,6 +1232,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if report.terminal:
             self.engine_output.setPlainText(f"Game over: {report.termination} ({report.result})")
             self.board_canvas.set_arrows([])
+            self.recommendation_status.setText("Suggestion: game over.")
             return
         rows, arrows = [], []
         for number, line in enumerate(report.variations, 1):
@@ -1006,11 +1241,18 @@ class MainWindow(QtWidgets.QMainWindow):
             arrows.append(line.move_uci)
         self.engine_output.setPlainText("\n".join(rows) or "Stockfish returned no variations.")
         self.board_canvas.set_arrows(arrows)
+        if report.variations:
+            best = report.variations[0]
+            evaluation = f"mate {best.mate_distance}" if best.mate_distance is not None else f"{best.evaluation_centipawns / 100:+.2f}" if best.evaluation_centipawns is not None else "evaluation unavailable"
+            self.recommendation_status.setText(f"Suggestion: {best.move_san} ({best.move_uci}), {evaluation}.")
+        else:
+            self.recommendation_status.setText("Suggestion: Stockfish returned no legal recommendation.")
         self.statusBar().showMessage("Stockfish analysis complete. Green, blue, and orange arrows show MultiPV 1–3.")
 
     def _engine_failed(self, message: str) -> None:
         self._refresh_state_controls()
         self.engine_output.setPlainText(f"Stockfish analysis failed: {message}")
+        self.recommendation_status.setText("Suggestion unavailable: local Stockfish could not analyze this position.")
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         if self._engine_worker is not None and self._engine_worker.isRunning():

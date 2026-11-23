@@ -31,11 +31,15 @@ def export_debug_report(
     grid: BoardGrid,
     predictions: dict[str, PiecePrediction],
     backend: str,
+    tracking: dict | None = None,
+    previous_board_image: np.ndarray | None = None,
 ) -> Path:
     """Export only the selected board crop and local recognition evidence."""
     root = Path(directory)
     root.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(root / "board_crop.png"), cv2.cvtColor(board_image[:, :, :3], cv2.COLOR_RGB2BGR))
+    if previous_board_image is not None:
+        cv2.imwrite(str(root / "previous_board_crop.png"), cv2.cvtColor(previous_board_image[:, :, :3], cv2.COLOR_RGB2BGR))
     cv2.imwrite(str(root / "grid_overlay.png"), cv2.cvtColor(grid_overlay(board_image, grid), cv2.COLOR_RGB2BGR))
     squares = root / "squares"
     squares.mkdir(exist_ok=True)
@@ -51,5 +55,7 @@ def export_debug_report(
         "software": {"python": platform.python_version(), "opencv": cv2.__version__},
         "note": "Contains only the user-selected board crop, never the full desktop frame.",
     }
+    if tracking is not None:
+        report["tracking"] = tracking
     (root / "recognition.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     return root

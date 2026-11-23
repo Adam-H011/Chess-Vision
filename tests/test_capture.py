@@ -39,6 +39,11 @@ def test_capture_initialization_and_frame_storage() -> None:
     backend.callback(np.full((2, 3, 3), 7, dtype=np.uint8))
     assert capture.is_running
     assert capture.latest_frame().shape == (2, 3, 3)
+    frame, info = capture.latest_frame_with_info()
+    assert frame.shape == (2, 3, 3)
+    assert info.sequence_id == 1 and (info.width, info.height) == (3, 2)
+    backend.callback(np.full((2, 3, 3), 8, dtype=np.uint8))
+    assert capture.latest_frame_with_info()[1].sequence_id == 2
 
 
 def test_permission_denial_stops_backend() -> None:

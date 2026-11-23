@@ -93,12 +93,12 @@ def test_valid_fen_import_clears_stale_tracking_uncertainty_and_permits_offline_
     window = MainWindow()
     window._tracker.confirm_initial(chess.STARTING_FEN)
     window._tracker.observe_placement(chess.STARTING_BOARD_FEN, uncertain=True)
-    assert window._tracker.state is TrackingState.UNCERTAIN
+    assert window._tracker.state is TrackingState.MONITORING
     window._apply_position(fen_position())
     assert window._position_valid and window._confirmed_fen == chess.STARTING_FEN
     assert window._tracker.state is TrackingState.WAITING_INITIAL
     assert "ready" in window.tracking_status.text().lower()
-    assert window.mode_selector.currentData() is AnalysisMode.OFFLINE
+    assert window._selected_mode() is AnalysisMode.OFFLINE
     assert window.analyze_position_button.isEnabled()
     assert "permitted" in window.engine_status.text().lower()
     window.close(); app.processEvents()
@@ -124,11 +124,11 @@ def test_tracking_mismatch_keeps_confirmed_fen_and_offline_engine_available() ->
     image = np.zeros((80, 80, 3), dtype=np.uint8)
     window._monitor_frame_dimensions = (80, 80)
     window._monitor_region = CaptureRegion(0, 0, 80, 80)
-    window._monitoring_recognized(BoardGrid.manual(image), empty_predictions(), "test")
+    window._monitoring_recognized(BoardGrid.manual(image), empty_predictions(), None, "test")
     assert window._tracker.state is TrackingState.UNCERTAIN
     assert window._confirmed_fen == chess.STARTING_FEN
     assert window._position_valid and window.analyze_position_button.isEnabled()
-    assert "uncertain-position" in window.tracking_status.text()
+    assert "Tracking:" in window.tracking_status.text()
     window.close(); app.processEvents()
 
 
@@ -144,5 +144,36 @@ def test_source_switch_and_engine_mode_do_not_reset_confirmed_position() -> None
     window.mode_selector.setCurrentIndex(0)  # offline
     assert window.analyze_position_button.isEnabled()
     assert "permitted" in window.engine_status.text().lower()
+    window.close(); app.processEvents()
+
+
+def test_white_recommendation_gate_resumes_after_a_confirmed_black_move() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(); window._apply_position(fen_position())
+    assert window._may_recommend_now()  # White is the selected default side.
+    board = chess.Board(); board.push_uci("e2e4")
+    window._set_position_state(True, "tracked legal move confirmed", board.fen())
+    assert not window._may_recommend_now()
+    board.push_uci("e7e5")
+    window._set_position_state(True, "tracked legal move confirmed", board.fen())
+    assert window._may_recommend_now()
+    window.close(); app.processEvents()
+
+
+def test_manual_confirmation_cannot_desynchronize_legal_successor_turn_metadata() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    before = chess.Board(); before.push_uci("d2d4")
+    window._tracker.confirm_initial(before.fen(en_passant="fen"))
+    window._confirmed_fen = window._tracker.fen
+    after = before.copy(stack=False); after.push_uci("d7d5")
+    names = {"P":"white_pawn", "N":"white_knight", "B":"white_bishop", "R":"white_rook", "Q":"white_queen", "K":"white_king",
+             "p":"black_pawn", "n":"black_knight", "b":"black_bishop", "r":"black_rook", "q":"black_queen", "k":"black_king"}
+    window._predictions = {chess.square_name(square): PiecePrediction(names[piece.symbol()], 1, False) for square, piece in after.piece_map().items()}
+    for key, value in (("turn", "b"), ("castling", "KQkq"), ("ep", "-"), ("halfmove", "0"), ("fullmove", "2")):
+        window.metadata[key].setText(value)
+    window._confirm_position()
+    assert window._tracker.fen == before.fen(en_passant="fen")
+    assert "metadata is stale" in window.statusBar().currentMessage()
     window.close(); app.processEvents()
     app.processEvents()

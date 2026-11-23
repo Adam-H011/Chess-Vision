@@ -10,6 +10,7 @@ from __future__ import annotations
 import threading
 import logging
 import secrets
+import time
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
@@ -45,6 +46,16 @@ class CaptureRegion:
 
     x: int
     y: int
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
+class FrameInfo:
+    """Identity and receipt timing for a PipeWire frame held in the cache."""
+    sequence_id: int
+    received_monotonic_ns: int
+    received_wall_time_ns: int
     width: int
     height: int
 
@@ -101,6 +112,8 @@ class PortalScreenCapture:
         self._backend = backend or GnomePortalPipeWireBackend()
         self._lock = threading.Lock()
         self._latest_frame: "np.ndarray | None" = None
+        self._latest_frame_info: FrameInfo | None = None
+        self._frame_sequence = 0
         self._running = False
 
     @property
@@ -129,11 +142,19 @@ class PortalScreenCapture:
             self._running = False
             with self._lock:
                 self._latest_frame = None
+                self._latest_frame_info = None
 
     def latest_frame(self) -> "np.ndarray | None":
         """Return a copy of the latest frame, or ``None`` before one arrives."""
         with self._lock:
             return None if self._latest_frame is None else self._latest_frame.copy()
+
+    def latest_frame_with_info(self) -> tuple["np.ndarray", FrameInfo] | None:
+        """Return one coherent cached frame and its delivery identity."""
+        with self._lock:
+            if self._latest_frame is None or self._latest_frame_info is None:
+                return None
+            return self._latest_frame.copy(), self._latest_frame_info
 
     def selected_region(self, region: CaptureRegion) -> "np.ndarray":
         frame = self.latest_frame()
@@ -144,6 +165,10 @@ class PortalScreenCapture:
     def _on_frame(self, frame: "np.ndarray") -> None:
         with self._lock:
             self._latest_frame = frame.copy()
+            self._frame_sequence += 1
+            self._latest_frame_info = FrameInfo(
+                self._frame_sequence, time.monotonic_ns(), time.time_ns(), frame.shape[1], frame.shape[0]
+            )
 
 
 class GnomePortalPipeWireBackend:

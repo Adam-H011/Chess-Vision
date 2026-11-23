@@ -38,6 +38,7 @@ class PiecePrediction:
     uncertain: bool
     occupancy: str = "unknown"
     foreground_fraction: float = 0.0
+    score_margin: float = 1.0
 
 
 class RecognitionBackend(Protocol):
@@ -146,6 +147,7 @@ class TemplatePieceRecognizer:
             piece.uncertain or occupancy.state == "uncertain",
             occupancy.state,
             occupancy.foreground_fraction,
+            piece.score_margin,
         )
 
     def recognize_piece(self, square: np.ndarray) -> PiecePrediction:
@@ -161,7 +163,7 @@ class TemplatePieceRecognizer:
                 colors[state.split("_", 1)[0]].extend(values)
         available_colours = [color for color, values in colors.items() if values]
         target_color = min(available_colours, key=lambda color: abs(luminance - float(np.mean(colors[color]))))
-        best_state, best_score = "unknown", -1.0
+        state_scores: dict[str, float] = {}
         for state, images in self.templates.items():
             if state == "empty" or not state.startswith(f"{target_color}_"):
                 continue
@@ -172,8 +174,10 @@ class TemplatePieceRecognizer:
                 shape_score = intersection / union if union else 0.0
                 colour_score = max(0.0, 1.0 - abs(luminance - self.template_luminance[state][index]) / 160.0)
                 score = 0.82 * shape_score + 0.18 * colour_score
-                if score > best_score:
-                    best_state, best_score = state, score
+                state_scores[state] = max(state_scores.get(state, -1.0), score)
+        ordered_scores = sorted(state_scores.items(), key=lambda item: item[1], reverse=True)
+        best_state, best_score = ordered_scores[0] if ordered_scores else ("unknown", -1.0)
+        runner_up = ordered_scores[1][1] if len(ordered_scores) > 1 else -1.0
         # ``score`` is already a bounded similarity: IoU contributes 82% and
         # foreground luminance contributes 18%. The former ``(score + 1) / 2``
         # conversion inflated weak matches into apparently certain ones.
@@ -182,7 +186,10 @@ class TemplatePieceRecognizer:
         # low-confidence piece with "empty" hides recognition failures.
         if best_state == "unknown":
             raise TemplateError("No piece templates are available for occupied-square classification.")
-        return PiecePrediction(best_state, confidence, confidence < self.threshold, "occupied")
+        # A high absolute IoU can still be a poor identity decision when the
+        # runner-up (for example queen vs knight) is nearly identical.
+        margin = max(0.0, best_score - runner_up) if runner_up >= 0 else 1.0
+        return PiecePrediction(best_state, confidence, confidence < self.threshold or margin < .06, "occupied", 0.0, margin)
 
 
 class TwoStagePieceRecognizer:
@@ -199,7 +206,7 @@ class TwoStagePieceRecognizer:
         uncertain = prediction.uncertain or occupancy.state == "uncertain"
         return PiecePrediction(
             prediction.state, min(prediction.confidence, occupancy.confidence) if uncertain else prediction.confidence,
-            uncertain, occupancy.state, occupancy.foreground_fraction,
+            uncertain, occupancy.state, occupancy.foreground_fraction, prediction.score_margin,
         )
 
 

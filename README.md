@@ -223,6 +223,13 @@ diagnostics list frame dimensions, one-time crop coordinates, locked orientation
 recognition profile, uncertain-square count, recognized versus authoritative placement,
 square differences, confidence, stability, legal-candidate count, and the exact decision.
 
+If ChessVision misses up to three plies between stable frames, it performs a bounded legal
+sequence search (maximum 1,500 generated nodes). Exact sequences and candidates differing
+by at most two recognized squares are shown as a **proposed sequence** only after stable
+observations. Use **Confirm Proposed Sequence** only after reviewing it; ambiguous, weak,
+or limit-reached matches stay paused. This is also how an isolated piece-label error—such
+as a queen/knight confusion—is surfaced without silently changing the tracked board.
+
 Monitoring displays board state and move history but does not automatically start Stockfish.
 The existing fair-play mode restrictions remain in force throughout monitoring.
 
