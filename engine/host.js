@@ -52,6 +52,7 @@ class Stockfish {
   onLine(line) {
     if (line.startsWith('bestmove ') && this.ignoreNextBestmove) {
       this.ignoreNextBestmove = false;
+      clearTimeout(this.ignoreTimer);
       return;
     }
     for (const listener of this.listeners) listener(line);
@@ -76,6 +77,10 @@ class Stockfish {
       this.send('stop');
       this.current.reject(new Error('_analysis_cancelled'));
       this.current = null;
+      // Falls der gestoppte Suchlauf keine bestmove-Zeile mehr liefert, darf das
+      // Flag nicht ewig stehen bleiben und den nächsten Zug verschlucken.
+      clearTimeout(this.ignoreTimer);
+      this.ignoreTimer = setTimeout(() => { this.ignoreNextBestmove = false; }, 300);
     }
     return new Promise((resolve, reject) => {
       let cp = null, mate = null, depth = 0, pv = '';

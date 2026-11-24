@@ -8,6 +8,7 @@ const JUSTIFICATION =
 let creatingOffscreen = null;
 const requestTabs = new Map();
 const watchers = new Map();   // tabId -> { timer, busy, paused }
+const pendingAnalysis = new Map(); // tabId -> { requestId, timer }
 const WATCH_INTERVAL = 1100;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -213,6 +214,24 @@ async function reanalyzeLatest(tabId) {
   }
 }
 
+function clearAnalysisWatchdog(tabId) {
+  const pending = pendingAnalysis.get(tabId);
+  if (pending) clearTimeout(pending.timer);
+  pendingAnalysis.delete(tabId);
+}
+
+function armAnalysisWatchdog(tabId, requestId) {
+  clearAnalysisWatchdog(tabId);
+  const timer = setTimeout(async () => {
+    const current = pendingAnalysis.get(tabId);
+    if (!current || current.requestId !== requestId) return;
+    clearAnalysisWatchdog(tabId);
+    forward({ type: 'STATUS', text: 'Analyse dauert länger – neuer Versuch…', requestId, tabId }, tabId);
+    try { await reanalyzeLatest(tabId); } catch (_) { /* nächster Tick übernimmt */ }
+  }, 7000);
+  pendingAnalysis.set(tabId, { requestId, timer });
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== 'string') return false;
   const tabId = sender.tab ? sender.tab.id : message.tabId;
@@ -304,6 +323,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case 'CLEAR_BOARD': {
         stopWatch(tabId);
+        clearAnalysisWatchdog(tabId);
         const last = await getLastByTab();
         delete last[tabId];
         await chrome.storage.session.set({ lastByTab: last });
@@ -326,6 +346,11 @@ chrome.runtime.onMessage.addListener(async message => {
   const tabId = message.tabId != null ? message.tabId : requestTabs.get(message.requestId);
   if (tabId == null) return;
   await forward(message, tabId);
+  if (message.type === 'STATUS' && message.requestId) {
+    armAnalysisWatchdog(tabId, message.requestId);
+  } else if (message.type === 'RESULT' || message.type === 'ERROR') {
+    clearAnalysisWatchdog(tabId);
+  }
   if (message.type === 'POSITION') {
     // Nach der ersten erkannten Stellung dauerhaft nach Zügen Ausschau halten.
     // Die Zugfarbe kommt ausschließlich aus den Einstellungen, nicht aus dem Screenshot.
@@ -335,6 +360,7 @@ chrome.runtime.onMessage.addListener(async message => {
 
 chrome.tabs.onRemoved.addListener(async tabId => {
   stopWatch(tabId);
+  clearAnalysisWatchdog(tabId);
   const last = await getLastByTab();
   if (last[tabId]) {
     delete last[tabId];

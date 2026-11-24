@@ -53,8 +53,8 @@ function setStatus(text) {
 
 function showResult(data) {
   if (!data || !data.bestmove) {
-    elements.move.textContent = '–';
-    elements.evaluation.textContent = 'Kein legaler Zug gefunden';
+    elements.move.textContent = '…';
+    elements.evaluation.textContent = 'Zug wird gesucht…';
     return;
   }
   elements.move.textContent = data.san || data.bestmove;

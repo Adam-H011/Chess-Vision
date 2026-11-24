@@ -305,7 +305,7 @@
         `<span style="color:#9dd8c1">${escapeHtml(result.bestmove)}</span>` +
         `<span class="cv-eval">${escapeHtml(evalText)}</span>`;
     } else {
-      main = '<span>Kein Zug gefunden</span>';
+      main = '<span>Zug wird gesucht…</span>';
     }
     badge.innerHTML =
       `<span class="cv-live ${watchLive ? 'on' : ''}">${watchLive ? '● LIVE' : '○ LIVE'}</span>` +
