@@ -21,8 +21,10 @@ direkt auf dem markierten Brett an. Alles läuft lokal – keine API, kein Serve
 4. Danach läuft ChessVision im **Live-Modus** weiter: Sobald du auf der Website einen Zug machst,
    wird die Stellung automatisch neu erkannt und der nächste Zug vorgeschlagen – ohne erneutes Markieren.
 5. Die Zugfarbe kommt immer aus **„Ich spiele als“** im Popup – sie wird nach deinem Zug **nicht**
-   automatisch gewechselt. Im Overlay zeigt `Weiß`/`Schwarz` die analysierte Farbe; mit **W↔B**
-   kannst du die Perspektive jederzeit manuell umschalten.
+   automatisch gewechselt. Nur wenn der gegnerische König im Schach steht, korrigiert ChessVision
+   die Zugfarbe automatisch (sonst wäre die Stellung illegal und Stockfish fände keinen Zug).
+   Im Overlay zeigt `Weiß`/`Schwarz` die tatsächlich analysierte Farbe; mit **W↔B** kannst du die
+   Perspektive jederzeit manuell umschalten.
 6. Bei Fehlern: im Overlay auf **✎** klicken. Die Felder sind nach Farbe markiert
    (weißer Ring = weiße Figur, schwarzer Ring = schwarze Figur). Im Auswähler gibt es getrennte
    Reihen für **Weiß** und **Schwarz**, einen Button **◐ Farbe wechseln** und **leer**.

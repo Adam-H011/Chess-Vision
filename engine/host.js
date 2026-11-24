@@ -115,6 +115,11 @@ function tryFen(board, turn) {
   const fen = makeFen(board, turn);
   try {
     new Chess(fen);
+    // Illegal: der König der NICHT am Zug befindlichen Seite steht im Schach.
+    // Das passiert z. B., wenn der Gegner gerade Schach gegeben hat und wir
+    // trotzdem die Lieblingsfarbe des Nutzers als ziehend markieren würden.
+    const opposite = new Chess(makeFen(board, turn === 'w' ? 'b' : 'w'));
+    if (opposite.isCheck()) return null;
     return { fen, turn };
   } catch (_) {
     return null;
@@ -126,39 +131,68 @@ function resolveFen(board, preferredTurn) {
   if (first) return first;
   const second = tryFen(board, preferredTurn === 'w' ? 'b' : 'w');
   if (second) return second;
+  // Fallback: falls beide Seiten „im Schach“ wären (z. B. Erkennungsfehler),
+  // wenigstens eine strukturell gültige FEN an Stockfish geben.
+  for (const turn of [preferredTurn, preferredTurn === 'w' ? 'b' : 'w']) {
+    const fen = makeFen(board, turn);
+    try {
+      new Chess(fen);
+      return { fen, turn };
+    } catch (_) { /* nächste Versuch */ }
+  }
   return { fen: null, error: 'Stellung ungültig – bitte die Figuren mit ✎ korrigieren.' };
 }
 
 /* ------------------------------ Analyse ----------------------------------- */
 
-async function analyzePosition(context) {
-  const { requestId, tabId, settings, board } = context;
-  const resolved = resolveFen(board, settings.turn);
-  context.fen = resolved.fen;
-  contexts.set(tabId, context);
-
+function postPosition(requestId, tabId, resolved, context, settings) {
   post({
     type: 'POSITION',
     requestId,
     tabId,
     fen: resolved.fen,
-    board,
+    board: context.board,
     turn: resolved.turn,
     orientation: settings.orientation,
     rect: context.rect,
     uncertain: context.uncertain || []
   });
+}
+
+async function analyzePosition(context) {
+  const { requestId, tabId, settings, board } = context;
+  let resolved = resolveFen(board, settings.turn);
+  context.fen = resolved.fen;
+  contexts.set(tabId, context);
 
   if (!resolved.fen) {
+    postPosition(requestId, tabId, { fen: null, turn: settings.turn }, context, settings);
     post({ type: 'ERROR', requestId, tabId, message: resolved.error });
     return;
   }
 
+  postPosition(requestId, tabId, resolved, context, settings);
   post({ type: 'STATUS', requestId, tabId, text: 'Stockfish rechnet…' });
+
   try {
-    const analysis = await getEngine().analyze(resolved.fen, settings.timeMs);
-    const latest = contexts.get(tabId);
+    let analysis = await getEngine().analyze(resolved.fen, settings.timeMs);
+    let latest = contexts.get(tabId);
     if (!latest || latest.requestId !== requestId) return;
+
+    // Sicherheitsnetz: liefert Stockfish keinen Zug, mit der anderen Zugfarbe
+    // erneut versuchen. So bleibt immer ein Vorschlag sichtbar.
+    if (!analysis.bestmove) {
+      const alternative = resolveFen(board, resolved.turn === 'w' ? 'b' : 'w');
+      if (alternative.fen && alternative.fen !== resolved.fen) {
+        resolved = alternative;
+        context.fen = resolved.fen;
+        postPosition(requestId, tabId, resolved, context, settings);
+        post({ type: 'STATUS', requestId, tabId, text: 'Zugfarbe angepasst – Stockfish rechnet…' });
+        analysis = await getEngine().analyze(resolved.fen, settings.timeMs);
+        latest = contexts.get(tabId);
+        if (!latest || latest.requestId !== requestId) return;
+      }
+    }
 
     let san = null;
     if (analysis.bestmove) {
@@ -183,7 +217,8 @@ async function analyzePosition(context) {
       mate: analysis.mate,
       depth: analysis.depth,
       pv: analysis.pv,
-      fen: resolved.fen
+      fen: resolved.fen,
+      turn: resolved.turn
     });
   } catch (error) {
     if (error.message === '_analysis_cancelled') return;
